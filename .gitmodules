@@ -1,6 +1,7 @@
-[submodule "external/fmt"]
-	path = external/fmt
-	url = https://github.com/fmtlib/fmt.git
 [submodule "external/ooz"]
 	path = external/ooz
 	url = https://github.com/zao/ooz.git
+[submodule "external/oneTBB"]
+	path = external/oneTBB
+	url = https://github.com/uxlfoundation/oneTBB.git
+	shallow = true
