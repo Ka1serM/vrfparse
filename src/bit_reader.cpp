@@ -37,14 +37,16 @@ void appendUtf8(std::string& text, const char32_t code) {
 
 BitReader::BitReader(const std::span<const std::uint8_t> data, const std::int64_t bits)
     : BitReader(data, 0, std::min(bits, static_cast<std::int64_t>(data.size()) * 8)) {
-    if (end < bits) error = true;
+    if (end < bits)
+        error = true;
 }
 
 BitReader::BitReader(const std::span<const std::uint8_t> data, const std::int64_t start, const std::int64_t end)
     : data(data), start(start), end(end), position(start) {}
 
 bool BitReader::reserve(const std::int64_t count) {
-    if (count >= 0 && count <= end - position) return true;
+    if (count >= 0 && count <= end - position)
+        return true;
     error = true;
     position = end;
     return false;
@@ -55,20 +57,23 @@ std::uint64_t BitReader::peek(const std::int64_t bit) const {
     const int shift = static_cast<int>(bit & 7);
     std::uint64_t low = 0;
     std::memcpy(&low, data.data() + byte, std::min<std::size_t>(8, data.size() - byte));
-    if (shift == 0) return low;
+    if (shift == 0)
+        return low;
     const std::uint64_t high = byte + 8 < data.size() ? data[byte + 8] : 0;
     return (low >> shift) | (high << (64 - shift));
 }
 
 bool BitReader::readBit() {
-    if (!reserve(1)) return false;
+    if (!reserve(1))
+        return false;
     const bool bit = (data[static_cast<std::size_t>(position >> 3)] >> (position & 7)) & 1;
     ++position;
     return bit;
 }
 
 std::uint64_t BitReader::readBits(const int count) {
-    if (count <= 0 || !reserve(count)) return 0;
+    if (count <= 0 || !reserve(count))
+        return 0;
     const std::uint64_t value = peek(position) & lowBits(count);
     position += count;
     return value;
@@ -79,7 +84,8 @@ std::uint32_t BitReader::serializeIntPacked() {
     for (int shift = 0; shift < 35; shift += 7) {
         const std::uint8_t next = readByte();
         value |= static_cast<std::uint32_t>(next >> 1) << shift;
-        if ((next & 1) == 0) return value;
+        if ((next & 1) == 0)
+            return value;
     }
     error = true;
     return value;
@@ -92,7 +98,8 @@ std::uint32_t BitReader::serializeInt(const std::uint32_t valueMax) {
             error = true;
             break;
         }
-        if (readBit()) value |= mask;
+        if (readBit())
+            value |= mask;
     }
     return value;
 }
@@ -103,7 +110,8 @@ double BitReader::readDouble() { return std::bit_cast<double>(readUInt64()); }
 
 std::string BitReader::readString() {
     const std::int32_t length = readInt32();
-    if (length == 0 || error) return {};
+    if (length == 0 || error)
+        return {};
     if (length > maxStringLength || length < -maxStringLength) {
         error = true;
         return {};
@@ -123,8 +131,10 @@ std::string BitReader::readString() {
             appendUtf8(text, code);
         }
     }
-    if (error) return {};
-    while (!text.empty() && text.back() == '\0') text.pop_back();
+    if (error)
+        return {};
+    while (!text.empty() && text.back() == '\0')
+        text.pop_back();
     return text;
 }
 
@@ -143,7 +153,8 @@ void BitReader::readBits(const std::span<std::uint8_t> destination, const std::i
             const std::uint64_t word = peek(position + static_cast<std::int64_t>(byte) * 8);
             std::memcpy(destination.data() + byte, &word, 8);
         }
-        for (; byte < whole; ++byte) destination[byte] = static_cast<std::uint8_t>(peek(position + static_cast<std::int64_t>(byte) * 8));
+        for (; byte < whole; ++byte)
+            destination[byte] = static_cast<std::uint8_t>(peek(position + static_cast<std::int64_t>(byte) * 8));
     }
     position += static_cast<std::int64_t>(whole) * 8;
     if (const int rest = static_cast<int>(count & 7)) {
@@ -154,7 +165,8 @@ void BitReader::readBits(const std::span<std::uint8_t> destination, const std::i
 }
 
 BitReader BitReader::readSubReader(const std::int64_t count) {
-    if (!reserve(count)) return BitReader(data, end, end);
+    if (!reserve(count))
+        return BitReader(data, end, end);
     BitReader sub(data, position, position + count);
     position += count;
     return sub;

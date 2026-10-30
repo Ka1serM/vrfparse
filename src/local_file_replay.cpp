@@ -34,29 +34,33 @@ constexpr std::uint64_t customVersionSize = 20;
 enum class ChunkType : std::uint32_t { Header, ReplayData, Checkpoint, Event };
 
 std::unexpected<Error> damaged(const std::string_view what, const ByteReader& reader) {
-    return fail(ErrorCode::Parse, std::format("The {} is damaged at byte {}: {}.", what, reader.getPosition(), reader.getReason()));
+    return std::unexpected(Error{ErrorCode::Parse, std::format("The {} is damaged at byte {}: {}.", what, reader.getPosition(), reader.getReason())});
 }
 
 }
 
 bool LocalFileReplay::File::open(const std::filesystem::path& path) {
     stream.open(path, std::ios::binary);
-    if (!stream) return false;
+    if (!stream)
+        return false;
     stream.seekg(0, std::ios::end);
     size = static_cast<std::uint64_t>(stream.tellg());
     return static_cast<bool>(stream);
 }
 
 void LocalFileReplay::File::read(const std::span<std::uint8_t> bytes) {
-    if (isError() || bytes.size() > size - offset) return setError("the file ends");
+    if (isError() || bytes.size() > size - offset)
+        return setError("the file ends");
     stream.seekg(static_cast<std::streamoff>(offset));
     stream.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-    if (!stream) return setError("the file cannot be read");
+    if (!stream)
+        return setError("the file cannot be read");
     offset += bytes.size();
 }
 
 void LocalFileReplay::File::read(std::vector<std::uint8_t>& buffer, const std::size_t count, const std::size_t slack) {
-    if (isError() || count > size - offset) return setError("the file ends");
+    if (isError() || count > size - offset)
+        return setError("the file ends");
     buffer.assign(count + slack, 0);
     read(std::span(buffer).first(count));
 }
@@ -74,34 +78,42 @@ std::string LocalFileReplay::File::readString() {
     read(std::span(bytes).subspan(sizeof(length)));
     ByteReader reader(bytes);
     std::string text = reader.readString();
-    if (reader.isError()) setError("a string does not decode");
+    if (reader.isError())
+        setError("a string does not decode");
     return text;
 }
 
 void LocalFileReplay::File::skip(const std::uint64_t count) {
-    if (isError() || count > size - offset) return setError("the file ends");
+    if (isError() || count > size - offset)
+        return setError("the file ends");
     offset += count;
 }
 
 void LocalFileReplay::File::seek(const std::uint64_t to) {
-    if (to > size) return setError("the file ends");
+    if (to > size)
+        return setError("the file ends");
     offset = to;
 }
 
 std::unexpected<Error> LocalFileReplay::File::fail() const {
-    return vrfparse::fail(ErrorCode::Parse, std::format("The replay file is damaged at byte {}: {}.", offset, reason));
+    return std::unexpected(Error{ErrorCode::Parse, std::format("The replay file is damaged at byte {}: {}.", offset, reason)});
 }
 
 // FLocalFileNetworkReplayStreamer::ReadReplayInfo, then the chunk headers. Only the header and the event chunks are read
 // whole; the replay data chunks and the checkpoints are read when they are decompressed.
-Result<> LocalFileReplay::open(const std::filesystem::path& path) {
-    if (!file.open(path)) return fail(ErrorCode::Open, std::format("'{}' cannot be opened.", path.string()));
-    if (file.read<std::uint32_t>() != fileMagic) return fail(ErrorCode::Parse, "The file is not a Valorant replay.");
+std::expected<void, Error> LocalFileReplay::open(const std::filesystem::path& path) {
+    if (!file.open(path))
+        return std::unexpected(Error{ErrorCode::Open, std::format("'{}' cannot be opened.", path.string())});
+    if (file.read<std::uint32_t>() != fileMagic)
+        return std::unexpected(Error{ErrorCode::Parse, "The file is not a Valorant replay."});
     const auto version = file.read<std::uint32_t>();
-    if (file.isError()) return file.fail();
-    if (version != fileVersion) return fail(ErrorCode::Version, std::format("The replay file version {} is not supported.", version));
+    if (file.isError())
+        return file.fail();
+    if (version != fileVersion)
+        return std::unexpected(Error{ErrorCode::Version, std::format("The replay file version {} is not supported.", version)});
     const auto customVersionCount = file.read<std::int32_t>();
-    if (customVersionCount < 0) file.setError("the custom version count is negative");
+    if (customVersionCount < 0)
+        file.setError("the custom version count is negative");
     file.skip(static_cast<std::uint64_t>(customVersionCount) * customVersionSize);
     lengthMs = file.read<std::int32_t>();
     // NetworkVersion and Changelist, then FriendlyName: an FString, negative for UTF-16 characters.
@@ -111,32 +123,39 @@ Result<> LocalFileReplay::open(const std::filesystem::path& path) {
     // bIsLive and Timestamp.
     file.skip(12);
     compressed = file.read<std::uint32_t>() != 0;
-    if (file.read<std::uint32_t>() != 0 && !file.isError()) return fail(ErrorCode::Encrypted, "The replay is encrypted.");
+    if (file.read<std::uint32_t>() != 0 && !file.isError())
+        return std::unexpected(Error{ErrorCode::Encrypted, "The replay is encrypted."});
     const auto keyLength = file.read<std::int32_t>();
-    if (keyLength < 0) file.setError("the key length is negative");
+    if (keyLength < 0)
+        file.setError("the key length is negative");
     file.skip(static_cast<std::uint64_t>(keyLength));
 
     std::vector<std::uint8_t> bytes;
     while (!file.atEnd() && !file.isError()) {
         const auto type = static_cast<ChunkType>(file.read<std::uint32_t>());
         const auto size = file.read<std::int32_t>();
-        if (size < 0) file.setError("a chunk size is negative");
-        if (file.isError()) break;
+        if (size < 0)
+            file.setError("a chunk size is negative");
+        if (file.isError())
+            break;
         const std::uint64_t chunkEnd = file.getOffset() + static_cast<std::uint64_t>(size);
         switch (type) {
         case ChunkType::Header:
-            if (!header.empty()) return fail(ErrorCode::Parse, "The replay has two header chunks.");
+            if (!header.empty())
+                return std::unexpected(Error{ErrorCode::Parse, "The replay has two header chunks."});
             file.read(header, static_cast<std::size_t>(size), 0);
             break;
         case ChunkType::ReplayData: {
-            if (header.empty()) return fail(ErrorCode::Parse, "Replay data comes before the header.");
-            // Time1, Time2.
-            file.skip(8);
+            if (header.empty())
+                return std::unexpected(Error{ErrorCode::Parse, "Replay data comes before the header."});
+            const auto startMs = file.read<std::uint32_t>();
+            const auto endMs = file.read<std::uint32_t>();
             const auto dataSize = file.read<std::int32_t>();
             const auto memorySize = file.read<std::int32_t>();
             if (dataSize < 0 || memorySize < 0 || file.getOffset() + static_cast<std::uint64_t>(dataSize) > chunkEnd)
                 file.setError("the data sizes do not fit the chunk");
-            dataChunks.push_back({.offset = file.getOffset(), .size = static_cast<std::uint32_t>(dataSize), .memorySize = static_cast<std::uint32_t>(memorySize)});
+            dataChunks.push_back({.offset = file.getOffset(), .size = static_cast<std::uint32_t>(dataSize), .memorySize = static_cast<std::uint32_t>(memorySize),
+                                  .startTime = static_cast<float>(startMs) / 1000.0f, .endTime = static_cast<float>(endMs) / 1000.0f});
             break;
         }
         case ChunkType::Event: {
@@ -148,7 +167,8 @@ Result<> LocalFileReplay::open(const std::filesystem::path& path) {
             marker.metadata = chunk.readString();
             marker.time = static_cast<float>(chunk.readUInt32()) / 1000.0f;
             marker.endTime = static_cast<float>(chunk.readUInt32()) / 1000.0f;
-            if (chunk.isError()) return damaged("replay event chunk", chunk);
+            if (chunk.isError())
+                return damaged("replay event chunk", chunk);
             break;
         }
         case ChunkType::Checkpoint: {
@@ -156,42 +176,48 @@ Result<> LocalFileReplay::open(const std::filesystem::path& path) {
             file.readString();
             file.readString();
             const std::string metadata = file.readString();
-            // Time1, Time2.
-            file.skip(8);
+            // Time1, then Time2, which is the same.
+            const auto timeMs = file.read<std::uint32_t>();
+            file.skip(4);
             const auto dataSize = file.read<std::int32_t>();
-            if (dataSize < 0 || file.getOffset() + static_cast<std::uint64_t>(dataSize) > chunkEnd) file.setError("the checkpoint size does not fit the chunk");
-            if (file.isError()) break;
-            Checkpoint& checkpoint = checkpoints.emplace_back(Checkpoint{.offset = file.getOffset(), .size = static_cast<std::uint32_t>(dataSize)});
+            if (dataSize < 0 || file.getOffset() + static_cast<std::uint64_t>(dataSize) > chunkEnd)
+                file.setError("the checkpoint size does not fit the chunk");
+            if (file.isError())
+                break;
+            Checkpoint& checkpoint = checkpoints.emplace_back(
+                Checkpoint{.offset = file.getOffset(), .size = static_cast<std::uint32_t>(dataSize), .time = static_cast<float>(timeMs) / 1000.0f});
             const char* const metadataEnd = metadata.data() + metadata.size();
             const auto [end, parsed] = std::from_chars(metadata.data(), metadataEnd, checkpoint.dataChunk);
             if (parsed != std::errc() || end != metadataEnd)
-                return fail(ErrorCode::Parse, std::format("Checkpoint {} names no data chunk: '{}'.", checkpoints.size() - 1, metadata));
+                return std::unexpected(Error{ErrorCode::Parse, std::format("Checkpoint {} names no data chunk: '{}'.", checkpoints.size() - 1, metadata)});
             break;
         }
         }
         file.seek(chunkEnd);
     }
-    if (file.isError()) return file.fail();
-    if (header.empty()) return fail(ErrorCode::Parse, "The replay has no header chunk.");
+    if (file.isError())
+        return file.fail();
+    if (header.empty())
+        return std::unexpected(Error{ErrorCode::Parse, "The replay has no header chunk."});
     return {};
 }
 
-Result<> LocalFileReplay::readDataChunk(const std::size_t index, std::vector<std::uint8_t>& frames) {
+std::expected<void, Error> LocalFileReplay::readDataChunk(const std::size_t index, std::vector<std::uint8_t>& frames) {
     const DataChunk& chunk = dataChunks[index];
     return readChunkData(chunk.offset, chunk.size, chunk.memorySize, frames);
 }
 
-Result<> LocalFileReplay::readCheckpoint(const Checkpoint& checkpoint, std::vector<std::uint8_t>& data) {
+std::expected<void, Error> LocalFileReplay::readCheckpoint(const Checkpoint& checkpoint, std::vector<std::uint8_t>& data) {
     return readChunkData(checkpoint.offset, checkpoint.size, std::nullopt, data);
 }
 
 // The sizes, then the Oodle data.
-Result<> LocalFileReplay::readChunkData(const std::uint64_t offset, const std::uint32_t size, const std::optional<std::uint32_t> memorySize,
+std::expected<void, Error> LocalFileReplay::readChunkData(const std::uint64_t offset, const std::uint32_t size, const std::optional<std::uint32_t> memorySize,
                                        std::vector<std::uint8_t>& data) {
     file.seek(offset);
     if (!compressed) {
         file.read(data, size, 0);
-        return file.isError() ? file.fail() : Result<>();
+        return file.isError() ? file.fail() : std::expected<void, Error>();
     }
     const auto decompressedSize = file.read<std::int32_t>();
     const auto compressedSize = file.read<std::int32_t>();
@@ -200,30 +226,34 @@ Result<> LocalFileReplay::readChunkData(const std::uint64_t offset, const std::u
         file.setError("the compressed sizes do not match the chunk");
     // The slack keeps ooz's reads and writes past the ends in the buffers.
     file.read(compressedData, static_cast<std::size_t>(compressedSize), oodleSlack);
-    if (file.isError()) return file.fail();
+    if (file.isError())
+        return file.fail();
     data.resize(static_cast<std::size_t>(decompressedSize) + oodleSlack);
     const int decoded = Kraken_Decompress(compressedData.data(), static_cast<std::size_t>(compressedSize), data.data(), static_cast<std::size_t>(decompressedSize));
-    if (decoded != decompressedSize) return fail(ErrorCode::Parse, std::format("The chunk at byte {} does not decompress.", offset));
+    if (decoded != decompressedSize)
+        return std::unexpected(Error{ErrorCode::Parse, std::format("The chunk at byte {} does not decompress.", offset)});
     data.resize(static_cast<std::size_t>(decompressedSize));
     return {};
 }
 
 // FNetworkDemoHeader's operator<<, with Valorant's block of its own after the engine version.
-Result<> NetworkDemoHeader::read(const std::span<const std::uint8_t> data) {
+std::expected<void, Error> NetworkDemoHeader::read(const std::span<const std::uint8_t> data) {
     ByteReader reader(data);
-    if (reader.readUInt32() != networkMagic) return fail(ErrorCode::Parse, "The replay header's network magic does not match.");
+    if (reader.readUInt32() != networkMagic)
+        return std::unexpected(Error{ErrorCode::Parse, "The replay header's network magic does not match."});
     const std::uint32_t version = reader.readUInt32();
     if (version != networkVersion)
-        return fail(ErrorCode::Version, std::format("The replay network version {} is not supported; {} is.", version, networkVersion));
+        return std::unexpected(Error{ErrorCode::Version, std::format("The replay network version {} is not supported; {} is.", version, networkVersion)});
     const std::int32_t customVersionCount = reader.readInt32();
-    if (customVersionCount < 0) reader.setError("the custom version count is negative");
+    if (customVersionCount < 0)
+        reader.setError("the custom version count is negative");
     reader.skip(static_cast<std::uint64_t>(customVersionCount) * customVersionSize);
     // NetworkChecksum.
     reader.skip(4);
     const std::uint32_t protocolVersion = reader.readUInt32();
     if (!reader.isError() && protocolVersion != engineNetworkProtocolVersion)
-        return fail(ErrorCode::Version, std::format("The replay engine network protocol {} is not supported; {} is.", protocolVersion,
-                                                    engineNetworkProtocolVersion));
+        return std::unexpected(Error{ErrorCode::Version, std::format("The replay engine network protocol {} is not supported; {} is.", protocolVersion,
+                                                    engineNetworkProtocolVersion)});
     // GameNetworkProtocolVersion, Guid.
     reader.skip(20);
     const std::uint16_t major = reader.readUInt16();
@@ -233,20 +263,22 @@ Result<> NetworkDemoHeader::read(const std::span<const std::uint8_t> data) {
     changelist = reader.readUInt32();
     branch = reader.readString();
     if (!reader.isError() && (major != engineMajor || minor != engineMinor))
-        return fail(ErrorCode::Version, std::format("The replay was recorded with Unreal {}.{} ({}); only {}.{} is supported.", major, minor,
-                                                    branch, engineMajor, engineMinor));
+        return std::unexpected(Error{ErrorCode::Version, std::format("The replay was recorded with Unreal {}.{} ({}); only {}.{} is supported.", major, minor,
+                                                    branch, engineMajor, engineMinor)});
     reader.skip(reader.readUInt32());
     // FPackageFileVersion and the licensee version.
     reader.skip(12);
     const std::int32_t levelCount = reader.readInt32();
-    if (levelCount < 0) reader.setError("the level count is negative");
+    if (levelCount < 0)
+        reader.setError("the level count is negative");
     for (std::int32_t i = 0; i < levelCount && !reader.isError(); ++i) {
         levels.push_back(reader.readString());
         // The time of the level.
         reader.skip(4);
     }
     flags = reader.readUInt32();
-    if (reader.isError()) return damaged("replay header", reader);
+    if (reader.isError())
+        return damaged("replay header", reader);
     return {};
 }
 

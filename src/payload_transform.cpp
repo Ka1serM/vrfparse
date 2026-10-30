@@ -52,7 +52,8 @@ Word<T> swapAdjacentBits(const Word<T> word) { return swapGroups(word, 1); }
 template <class T>
 Word<T> reverse(Word<T> word) {
     for (const int size : {1, 2, 4, 8})
-        if (size < Word<T>::bits / 2) word = swapGroups(word, size);
+        if (size < Word<T>::bits / 2)
+            word = swapGroups(word, size);
     return rotl(word, Word<T>::bits / 2);
 }
 
@@ -118,7 +119,8 @@ template <class T>
 Word<T> substitute(const Word<T> word) {
     constexpr const std::uint8_t* table = sizeof(T) == 8 ? substitutionTable64 : sizeof(T) == 4 ? substitutionTable32 : substitutionTable8;
     T result = 0;
-    for (int shift = 0; shift < Word<T>::bits; shift += 8) result = static_cast<T>(result | (T{table[(word.value >> shift) & 0xFF]} << shift));
+    for (int shift = 0; shift < Word<T>::bits; shift += 8)
+        result = static_cast<T>(result | (T{table[(word.value >> shift) & 0xFF]} << shift));
     return {result};
 }
 
@@ -138,13 +140,16 @@ public:
 private:
     static constexpr std::array<std::uint32_t, 9> powersOf11 = [] {
         std::array<std::uint32_t, 9> powers{1};
-        for (std::size_t n = 1; n < powers.size(); ++n) powers[n] = powers[n - 1] * 11;
+        for (std::size_t n = 1; n < powers.size(); ++n)
+            powers[n] = powers[n - 1] * 11;
         return powers;
     }();
 
     std::uint32_t source(const int n) const {
-        if constexpr (sizeof(T) == 8) return std::rotr(state, n);
-        if constexpr (sizeof(T) == 4) return std::rotl(state, n);
+        if constexpr (sizeof(T) == 8)
+            return std::rotr(state, n);
+        if constexpr (sizeof(T) == 4)
+            return std::rotl(state, n);
         return state * powersOf11[static_cast<std::size_t>(n)];
     }
 
@@ -194,7 +199,8 @@ void decodeRelease(const std::span<std::uint8_t> payload, const std::int64_t bit
     decodeWords(std::uint64_t{});
     decodeWords(std::uint32_t{});
     decodeWords(std::uint8_t{});
-    if (bitsLeft == 0) return;
+    if (bitsLeft == 0)
+        return;
     const auto lastBits = static_cast<std::uint8_t>((1u << bitsLeft) - 1);
     payload[offset] ^= static_cast<std::uint8_t>(lastBits & (generator.getState() ^ Release::seedAddend));
 }
@@ -478,7 +484,8 @@ constexpr Release releases[] = {
 
 PayloadTransform::PayloadTransform(const std::string_view branch) {
     const auto found = std::ranges::find(releases, branch, &Release::branch);
-    if (found != std::end(releases)) apply = found->decode;
+    if (found != std::end(releases))
+        apply = found->decode;
 }
 
 void PayloadTransform::decode(const std::span<std::uint8_t> payload, const std::int64_t bits, const std::uint32_t actorGuid) const {

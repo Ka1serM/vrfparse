@@ -1,10 +1,8 @@
 #pragma once
 
 #include <cstdint>
-#include <expected>
 #include <string>
 #include <string_view>
-#include <utility>
 
 namespace vrfparse {
 
@@ -37,10 +35,5 @@ struct Error {
     ErrorCode code = ErrorCode::Parse;
     std::string message;
 };
-
-template <class Value = void>
-using Result = std::expected<Value, Error>;
-
-inline std::unexpected<Error> fail(const ErrorCode code, std::string message) { return std::unexpected(Error{code, std::move(message)}); }
 
 }

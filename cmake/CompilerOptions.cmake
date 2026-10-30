@@ -55,6 +55,8 @@ elseif(NOT EMSCRIPTEN)
     # The development builds write the debug information next to the objects, which keeps it out of the link.
     add_compile_options("$<$<CONFIG:Debug,RelWithDebInfo>:-gsplit-dwarf>")
     add_compile_options("$<$<CONFIG:Release>:-fno-plt>")
+    # Clang links with GCC's runtime on Linux unless told: LLVM's builtins, crtbegin and unwinder instead.
+    add_link_options(--rtlib=compiler-rt --unwindlib=libunwind)
 endif()
 
 # RelWithDebInfo is a development configuration like Debug: it keeps the asserts. Only Release defines NDEBUG.

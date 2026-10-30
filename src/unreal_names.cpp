@@ -254,7 +254,8 @@ constexpr std::pair<std::uint32_t, std::string_view> names[] = {
 
 std::optional<std::string_view> findHardcodedName(const std::uint32_t index) {
     const auto found = std::ranges::lower_bound(names, index, {}, &std::pair<std::uint32_t, std::string_view>::first);
-    if (found == std::end(names) || found->first != index) return std::nullopt;
+    if (found == std::end(names) || found->first != index)
+        return std::nullopt;
     return found->second;
 }
 

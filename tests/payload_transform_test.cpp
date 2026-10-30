@@ -46,7 +46,8 @@ constexpr Expected releases[] = {
 // FNV-1a.
 std::uint64_t hashOf(const std::vector<std::uint8_t>& bytes) {
     std::uint64_t hash = 0xcbf29ce484222325ULL;
-    for (const std::uint8_t byte : bytes) hash = (hash ^ byte) * 0x100000001b3ULL;
+    for (const std::uint8_t byte : bytes)
+        hash = (hash ^ byte) * 0x100000001b3ULL;
     return hash;
 }
 
@@ -59,11 +60,14 @@ int main() {
         std::vector<std::uint8_t> decoded;
         for (std::int64_t bits = 0; bits <= 200; ++bits) {
             std::vector<std::uint8_t> payload(static_cast<std::size_t>((bits + 7) / 8));
-            for (std::size_t i = 0; i < payload.size(); ++i) payload[i] = static_cast<std::uint8_t>(i * 151 + static_cast<std::size_t>(bits) * 7 + 3);
-            if (transform.isKnown()) transform.decode(payload, bits, 0x2468ACE1u);
+            for (std::size_t i = 0; i < payload.size(); ++i)
+                payload[i] = static_cast<std::uint8_t>(i * 151 + static_cast<std::size_t>(bits) * 7 + 3);
+            if (transform.isKnown())
+                transform.decode(payload, bits, 0x2468ACE1u);
             decoded.insert(decoded.end(), payload.begin(), payload.end());
         }
-        if (transform.isKnown() && hashOf(decoded) == expected.hash) continue;
+        if (transform.isKnown() && hashOf(decoded) == expected.hash)
+            continue;
         std::println(stderr, "The payload transform of release {} does not match.", expected.release);
         ++failures;
     }

@@ -23,7 +23,8 @@ inline Vector readQuantizedVector(BitReader& reader, const double scale) {
     const int componentBits = static_cast<int>(info & 63);
     const bool scaled = (info >> 6) != 0;
     if (componentBits == 0) {
-        if (scaled) return readVector(reader);
+        if (scaled)
+            return readVector(reader);
         const float x = reader.readFloat();
         const float y = reader.readFloat();
         return {x, y, reader.readFloat()};

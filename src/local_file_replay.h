@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <expected>
 #include <filesystem>
 #include <fstream>
 #include <optional>
@@ -24,22 +25,34 @@ public:
         std::uint64_t offset = 0;
         std::uint32_t size = 0;
         std::size_t dataChunk = 0;
+        // Replay seconds.
+        float time = 0;
+    };
+
+    // A ReplayData chunk: where its data is in the file, its size once decompressed, and the replay seconds of its frames.
+    struct DataChunk {
+        std::uint64_t offset = 0;
+        std::uint32_t size = 0;
+        std::uint32_t memorySize = 0;
+        float startTime = 0;
+        float endTime = 0;
     };
 
     // Reads the replay info and the chunk headers.
-    [[nodiscard]] Result<> open(const std::filesystem::path& path);
+    [[nodiscard]] std::expected<void, Error> open(const std::filesystem::path& path);
 
     std::int32_t getLengthMs() const { return lengthMs; }
     std::span<const std::uint8_t> getHeader() const { return header; }
     // In file order.
     std::vector<Marker>& getMarkers() { return markers; }
-    std::size_t getDataChunkCount() const { return dataChunks.size(); }
+    // In file order, which is time order.
+    std::span<const DataChunk> getDataChunks() const { return dataChunks; }
     // Decompresses the demo frames of a replay data chunk into the buffer.
-    [[nodiscard]] Result<> readDataChunk(std::size_t index, std::vector<std::uint8_t>& frames);
+    [[nodiscard]] std::expected<void, Error> readDataChunk(std::size_t index, std::vector<std::uint8_t>& frames);
     // In file order.
     std::span<const Checkpoint> getCheckpoints() const { return checkpoints; }
     // Decompresses the checkpoint into the buffer.
-    [[nodiscard]] Result<> readCheckpoint(const Checkpoint& checkpoint, std::vector<std::uint8_t>& data);
+    [[nodiscard]] std::expected<void, Error> readCheckpoint(const Checkpoint& checkpoint, std::vector<std::uint8_t>& data);
 
 private:
     // The file, read at offsets. As ByteReader, a read that does not fit sets the error, which stays.
@@ -64,7 +77,8 @@ private:
         bool atEnd() const { return offset == size; }
         bool isError() const { return reason != nullptr; }
         void setError(const char* why) {
-            if (!reason) reason = why;
+            if (!reason)
+                reason = why;
         }
         // The error as a damaged file at the offset.
         std::unexpected<Error> fail() const;
@@ -76,16 +90,9 @@ private:
         const char* reason = nullptr;
     };
 
-    // A ReplayData chunk: where its data is in the file, and its size once decompressed.
-    struct DataChunk {
-        std::uint64_t offset = 0;
-        std::uint32_t size = 0;
-        std::uint32_t memorySize = 0;
-    };
-
     // FLocalFileNetworkReplayStreamer::DecompressBuffer of the chunk data at the offset, or the data as it is when the
     // replay is not compressed. A compressed size other than the memory size, when it is known, is damage.
-    [[nodiscard]] Result<> readChunkData(std::uint64_t offset, std::uint32_t size, std::optional<std::uint32_t> memorySize,
+    [[nodiscard]] std::expected<void, Error> readChunkData(std::uint64_t offset, std::uint32_t size, std::optional<std::uint32_t> memorySize,
                                          std::vector<std::uint8_t>& data);
 
     File file;
@@ -109,7 +116,7 @@ enum class ReplayHeaderFlags : std::uint32_t {
 // FNetworkDemoHeader of the header chunk, with the fields that the playback needs.
 struct NetworkDemoHeader {
     // Reads the header chunk. A replay of a network version other than Unreal 5.3's is not supported.
-    [[nodiscard]] Result<> read(std::span<const std::uint8_t> data);
+    [[nodiscard]] std::expected<void, Error> read(std::span<const std::uint8_t> data);
 
     bool hasFlag(ReplayHeaderFlags flag) const { return (flags & static_cast<std::uint32_t>(flag)) != 0; }
 

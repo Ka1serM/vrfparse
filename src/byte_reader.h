@@ -37,7 +37,8 @@ public:
     const char* getReason() const { return reason; }
     // Sets the error with its reason, a string literal; the first reason stays.
     void setError(const char* why) {
-        if (!reason) reason = why;
+        if (!reason)
+            reason = why;
     }
 
 private:
@@ -45,7 +46,8 @@ private:
     Value read() {
         Value value{};
         const std::span<const std::uint8_t> bytes = readBytes(sizeof(Value));
-        if (!bytes.empty()) std::memcpy(&value, bytes.data(), sizeof(Value));
+        if (!bytes.empty())
+            std::memcpy(&value, bytes.data(), sizeof(Value));
         return value;
     }
 

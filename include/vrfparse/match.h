@@ -1,7 +1,9 @@
 #pragma once
 
 #include <cstdint>
+#include <expected>
 #include <filesystem>
+#include <optional>
 #include <span>
 #include <stop_token>
 #include <string>
@@ -30,18 +32,29 @@ struct Interval {
     float end = 0;
 };
 
-// One read replay: its header and its events, which the net driver plays.
+// The time from a "roundStarted" replay event to the next one, or to the replay's end.
+struct Round {
+    // The event's zero-based round number + 1.
+    int number = 0;
+    Interval time;
+};
+
+// A read of a replay: its header, its rounds, and the events of a time range, which the net driver plays.
 class Match {
 public:
     Match() = default;
     Match(const Match&) = delete;
     Match& operator=(const Match&) = delete;
 
-    // Reads the file into the empty match, or fails with ErrorCode::Cancelled when stop is requested.
-    [[nodiscard]] Result<> read(const std::filesystem::path& file, std::stop_token stop);
-    // As read, but the events start at the last checkpoint: the state of each open actor at its time, then the frames
-    // after it. A replay without a checkpoint is read whole. The markers and the header are the whole replay's.
-    [[nodiscard]] Result<> readFromLastCheckpoint(const std::filesystem::path& file, std::stop_token stop);
+    // UDemoNetDriver::GotoTime's read into the empty match: the last checkpoint at or before the range's start, which
+    // opens each actor with its state at the checkpoint's time, then the frames after it through the data chunk that holds
+    // the range's end. Without such a checkpoint, the events start at the first frame. A range that ends after the replay
+    // reads to its end: {0, infinity} reads the whole replay, {infinity, infinity} the last checkpoint on. The header,
+    // the markers and the rounds are the whole replay's. Fails with ErrorCode::Cancelled when stop is requested.
+    [[nodiscard]] std::expected<void, Error> read(const std::filesystem::path& file, Interval range, std::stop_token stop);
+
+    // The replay time that the events cover: from the checkpoint, or the first frame, to the end of the last data chunk.
+    Interval getSpan() const { return span; }
 
     std::string_view getBranch() const { return branch; }
     std::uint32_t getChangelist() const { return changelist; }
@@ -55,21 +68,25 @@ public:
     std::span<const Event> getEvents() const { return log.getEvents(); }
     // The event chunks of the file, in file order.
     std::span<const Marker> getMarkers() const { return markers; }
+    // UReplayBlueprintLibrary::GetStartTimeForRound: in time order.
+    std::span<const Round> getRounds() const { return rounds; }
+    // Empty when the replay has no round of the number.
+    std::optional<Round> findRound(int number) const;
 
     // The class of the actor, from the content blocks of the actor's channel. Empty when the replay names none.
     std::string_view getClassPath(std::uint32_t actor) const;
 
 private:
-    enum class Start { FirstFrame, LastCheckpoint };
-
-    [[nodiscard]] Result<> read(const std::filesystem::path& file, Start start, std::stop_token stop);
+    void readRounds();
 
     std::string branch;
     std::uint32_t changelist = 0;
     float length = 0;
+    Interval span;
     std::vector<std::string> levels;
     std::vector<std::string> problems;
     std::vector<Marker> markers;
+    std::vector<Round> rounds;
     EventLog log;
     std::unordered_map<std::uint32_t, std::string_view> classPaths;
 };

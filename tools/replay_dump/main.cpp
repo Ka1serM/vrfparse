@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <format>
 #include <fstream>
+#include <limits>
 #include <print>
 #include <vector>
 
@@ -19,7 +20,8 @@ std::string hex(const vrfparse::Event& event) {
     std::vector<std::uint8_t> bytes(static_cast<std::size_t>((event.payloadBits + 7) / 8));
     event.readPayload().readBits(bytes, event.payloadBits);
     std::string text;
-    for (const std::uint8_t byte : bytes) std::format_to(std::back_inserter(text), "{:02x}", byte);
+    for (const std::uint8_t byte : bytes)
+        std::format_to(std::back_inserter(text), "{:02x}", byte);
     return text;
 }
 
@@ -37,16 +39,19 @@ std::string join(const Range& values) {
 }
 
 int main(const int argc, char** argv) {
-    if (argc < 3) return 2;
+    if (argc < 3)
+        return 2;
     vrfparse::Match match;
     const bool summary = std::string_view(argv[1]) == "summary";
-    if (const vrfparse::Result<> read = summary ? match.readFromLastCheckpoint(argv[2], std::stop_token()) : match.read(argv[2], std::stop_token()); !read) {
+    constexpr float end = std::numeric_limits<float>::infinity();
+    if (const std::expected<void, vrfparse::Error> read = match.read(argv[2], {summary ? end : 0, end}, std::stop_token()); !read) {
         std::println(stderr, "{} ({})", read.error().message, vrfparse::getErrorName(read.error().code));
         return 1;
     }
     {
         std::string out;
-        if (std::string_view(argv[1]) == "count") out = std::format("{} events\n", match.getEvents().size());
+        if (std::string_view(argv[1]) == "count")
+            out = std::format("{} events\n", match.getEvents().size());
         if (std::string_view(argv[1]) == "events") {
             for (const vrfparse::Event& e : match.getEvents()) {
                 const std::string time = bits(e.time);
@@ -92,15 +97,18 @@ int main(const int argc, char** argv) {
             for (const vrfparse::Marker& m : match.getMarkers())
                 out += std::format("marker\t{}\t{}\t{}\t{}\t{}\n", m.id, m.group, m.metadata, bits(m.time), bits(m.endTime));
             out += std::format("problems\t{}\n", match.getProblems().size());
-            for (const std::string& p : match.getProblems()) out += std::format("problem\t{}\n", p);
+            for (const std::string& p : match.getProblems())
+                out += std::format("problem\t{}\n", p);
         }
         if (summary) {
             const vrfparse::Timeline timeline(match);
             out += std::format("gamestate\t{}\nplayers\t{}\nwins\t{}\t{}\n", timeline.getGameStateClass(), timeline.getPlayerCount(),
                                timeline.getWins(vrfparse::Side::Blue), timeline.getWins(vrfparse::Side::Red));
             out += std::format("problems\t{}\n", match.getProblems().size() + timeline.getProblems().size());
-            for (const std::string& p : match.getProblems()) out += std::format("problem\t{}\n", p);
-            for (const std::string& p : timeline.getProblems()) out += std::format("problem\t{}\n", p);
+            for (const std::string& p : match.getProblems())
+                out += std::format("problem\t{}\n", p);
+            for (const std::string& p : timeline.getProblems())
+                out += std::format("problem\t{}\n", p);
         }
         if (std::string_view(argv[1]) == "match") {
             const vrfparse::Timeline timeline(match);
@@ -116,7 +124,8 @@ int main(const int argc, char** argv) {
             for (const vrfparse::Spike& p : timeline.getSpikes())
                 out += std::format("spike\t{}\t{}\t{}\t{}\t{},{}\n", bits(p.time), static_cast<int>(p.action), p.character, p.site, bits(p.x), bits(p.y));
             out += std::format("problems\t{}\n", timeline.getProblems().size());
-            for (const std::string& p : timeline.getProblems()) out += std::format("problem\t{}\n", p);
+            for (const std::string& p : timeline.getProblems())
+                out += std::format("problem\t{}\n", p);
             // Queries: "pose|health|shield <character> <time bits>".
             std::ifstream queries(argc > 3 ? argv[3] : "");
             std::string kind;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <expected>
 #include <span>
 #include <string>
 #include <string_view>
@@ -28,10 +29,10 @@ public:
     DemoReader& operator=(const DemoReader&) = delete;
 
     // UDemoNetDriver::ReadDemoFrame for each frame of a replay data chunk. After an error, the reader reads no more.
-    [[nodiscard]] Result<> readFrames(std::span<const std::uint8_t> data);
+    [[nodiscard]] std::expected<void, Error> readFrames(std::span<const std::uint8_t> data);
     // UDemoNetDriver::LoadCheckpoint of a checkpoint that is not a delta: the NetGUID cache, the export groups, and a frame
     // that opens each channel with its state. Read it first; the frames that follow are the frames after it.
-    [[nodiscard]] Result<> readCheckpoint(std::span<const std::uint8_t> data);
+    [[nodiscard]] std::expected<void, Error> readCheckpoint(std::span<const std::uint8_t> data);
     // The end of the replay: commits the events to the log. A partial bunch that did not complete is a problem.
     void finish();
 
@@ -77,7 +78,7 @@ private:
 
     // A chunk's events and content blocks start, and end with the content blocks decoded.
     void beginChunk();
-    [[nodiscard]] Result<> endChunk(const ByteReader& reader);
+    [[nodiscard]] std::expected<void, Error> endChunk(const ByteReader& reader);
     void readFrame(ByteReader& reader);
     void receivedPacket(std::span<const std::uint8_t> packet);
     BunchHeader readBunchHeader(BitReader& reader, std::uint32_t packetId);

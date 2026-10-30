@@ -23,7 +23,7 @@ enum class RoundOutcome : std::uint8_t { Elimination, Defuse, Detonate, TimeExpi
 
 enum class SpikeAction : std::uint8_t { Plant, Defuse };
 
-// A round from its RoundStarting phase (the buy phase) to the next round's, or to the end of the replay.
+// A round of the replay (Round): from the start of its buy phase to the next round's start, or to the end of the replay.
 struct TimelineRound {
     // From 1.
     int number = 0;

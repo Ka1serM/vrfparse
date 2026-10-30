@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cstdint>
-#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -28,29 +27,18 @@ struct Team {
     std::string_view name;
 };
 
-// The time from a "roundStarted" replay event to the next one, or to the replay's end.
-struct Round {
-    // The event's zero-based round number + 1.
-    int number = 0;
-    Interval time;
-};
-
-// The players and rounds of a match. Keeps a reference to the match.
+// The players and teams of a match. Keeps a reference to the match.
 class Roster {
 public:
     explicit Roster(const Match& match);
 
     // By the NetGUID of the player state.
     std::span<const Player> getPlayers() const { return players; }
-    std::span<const Round> getRounds() const { return rounds; }
     // By the NetGUID of the team state.
     std::span<const Team> getTeams() const { return teams; }
-    // Empty when the replay has no round of the number.
-    std::optional<Round> findRound(int number) const;
 
 private:
     std::vector<Player> players;
-    std::vector<Round> rounds;
     std::vector<Team> teams;
 };
 

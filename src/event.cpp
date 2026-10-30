@@ -26,7 +26,8 @@ std::span<Event> EventLog::allocateEvents(const std::size_t count) {
 }
 
 std::string_view EventLog::intern(const std::string_view text) {
-    if (text.empty()) return {};
+    if (text.empty())
+        return {};
     return *strings.emplace(text).first;
 }
 
@@ -36,7 +37,8 @@ std::span<const std::string_view> EventLog::addNames(std::vector<std::string_vie
 
 std::span<std::uint8_t> EventLog::allocatePayload(const std::int64_t bits) {
     const auto size = static_cast<std::size_t>((bits + 7) / 8);
-    if (size == 0) return {};
+    if (size == 0)
+        return {};
     if (blocks.empty() || blockUsed + size > blockSize) {
         blockSize = std::max(payloadBlockSize, size);
         blocks.push_back(std::make_unique<std::uint8_t[]>(blockSize));
