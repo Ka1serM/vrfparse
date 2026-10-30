@@ -1,0 +1,6 @@
+[submodule "external/fmt"]
+	path = external/fmt
+	url = https://github.com/fmtlib/fmt.git
+[submodule "external/ooz"]
+	path = external/ooz
+	url = https://github.com/zao/ooz.git

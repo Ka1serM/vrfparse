@@ -1,0 +1,74 @@
+#pragma once
+
+#include <cstdint>
+#include <string>
+#include <string_view>
+#include <unordered_map>
+#include <vector>
+
+#include "replay/event.h"
+
+namespace net {
+class BitReader;
+}
+
+namespace replay {
+
+class ByteReader;
+
+// FNetFieldExportGroup: the export names of a RepLayout, a class net cache, or a function, by handle. A handle that the
+// replay has not exported yet has an empty name.
+struct ExportGroup {
+    std::string_view path;
+    std::uint32_t pathIndex = 0;
+    std::vector<std::string_view> names;
+};
+
+// UPackageMapClient's NetGUID cache and export groups, as far as reading needs them: paths and names, not objects.
+// What it receives goes to the event log.
+class PackageMap {
+public:
+    explicit PackageMap(EventLog& log) : log(log) {}
+
+    // UPackageMapClient::InternalLoadObject: the NetGUID, and its export when the NetGUID has a path. An export bunch
+    // sends the export flags of every NetGUID; elsewhere only the default NetGUID (1) has them. The reader's error is
+    // set when it runs out.
+    std::uint32_t loadObject(net::BitReader& reader, bool exporting);
+    // UPackageMapClient::ReceiveNetGUIDBunch.
+    void receiveNetGuidBunch(net::BitReader& reader);
+    // UPackageMapClient::ReceiveExportData of a demo frame: ReceiveNetFieldExports, then ReceiveNetExportGUIDs.
+    void receiveExportData(ByteReader& reader);
+
+    // The name of the NetGUID in its outer, as it was exported. Empty when it was not.
+    std::string_view getName(std::uint32_t guid) const;
+    // UObject::GetPathName of the NetGUID: its outers' names, then its own. Empty when an outer was not exported.
+    std::string getPathName(std::uint32_t guid) const;
+    // The path name of a class, such as the class of a subobject. Empty when an outer was not exported.
+    std::string_view getClassPath(std::uint32_t classGuid);
+    // The class of a dynamic actor: the class of its archetype, a class default object. Empty for an archetype that is
+    // not a class default object: without the archetype's package, it names no class.
+    std::string_view getArchetypeClassPath(std::uint32_t archetypeGuid);
+    // UPackageMapClient::GetNetFieldExportGroup. Null when the replay has not exported the group.
+    const ExportGroup* findGroup(std::string_view path) const;
+
+    // UPackageMap::StaticSerializeName. Throws replay::Error for a hardcoded name that Unreal does not have.
+    static std::string readName(net::BitReader& reader);
+
+private:
+    struct Export {
+        std::string_view name;
+        std::uint32_t outer = 0;
+    };
+
+    std::uint32_t loadObject(net::BitReader& reader, bool exporting, int depth);
+    void receiveNetFieldExports(ByteReader& reader);
+
+    EventLog& log;
+    std::unordered_map<std::uint32_t, Export> exports;
+    std::unordered_map<std::uint32_t, std::string_view> classPaths;
+    std::vector<ExportGroup> groups;
+    std::unordered_map<std::uint32_t, std::size_t> groupsByIndex;
+    std::unordered_map<std::string_view, std::size_t> groupsByPath;
+};
+
+}
