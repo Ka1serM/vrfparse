@@ -84,6 +84,8 @@ private:
         std::unexpected<Error> fail() const;
 
     private:
+        // The stream reads in large parts: in the browser, each file read has a high fixed cost.
+        std::vector<char> buffer = std::vector<char>(1 << 20);
         std::ifstream stream;
         std::uint64_t size = 0;
         std::uint64_t offset = 0;

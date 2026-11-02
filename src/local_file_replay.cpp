@@ -40,18 +40,20 @@ std::unexpected<Error> damaged(const std::string_view what, const ByteReader& re
 }
 
 bool LocalFileReplay::File::open(const std::filesystem::path& path) {
+    // libc++ takes the buffer only before the file opens.
+    stream.rdbuf()->pubsetbuf(buffer.data(), static_cast<std::streamsize>(buffer.size()));
     stream.open(path, std::ios::binary);
     if (!stream)
         return false;
     stream.seekg(0, std::ios::end);
     size = static_cast<std::uint64_t>(stream.tellg());
+    stream.seekg(0);
     return static_cast<bool>(stream);
 }
 
 void LocalFileReplay::File::read(const std::span<std::uint8_t> bytes) {
     if (isError() || bytes.size() > size - offset)
         return setError("the file ends");
-    stream.seekg(static_cast<std::streamoff>(offset));
     stream.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
     if (!stream)
         return setError("the file cannot be read");
@@ -86,12 +88,15 @@ std::string LocalFileReplay::File::readString() {
 void LocalFileReplay::File::skip(const std::uint64_t count) {
     if (isError() || count > size - offset)
         return setError("the file ends");
-    offset += count;
+    seek(offset + count);
 }
 
 void LocalFileReplay::File::seek(const std::uint64_t to) {
     if (to > size)
         return setError("the file ends");
+    // A seek drops the stream's buffer, so only a real move seeks.
+    if (to != offset)
+        stream.seekg(static_cast<std::streamoff>(to));
     offset = to;
 }
 
