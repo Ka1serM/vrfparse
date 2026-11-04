@@ -34,6 +34,7 @@ public:
     [[nodiscard]] std::expected<void, Error> open(const std::filesystem::path& path);
 
     std::int32_t getLengthMs() const { return lengthMs; }
+    const std::string& getMatchId() const { return matchId; }
     std::span<const std::uint8_t> getHeader() const { return header; }
     std::vector<Marker>& getMarkers() { return markers; }
     std::span<const DataChunk> getDataChunks() const { return dataChunks; }
@@ -80,6 +81,7 @@ private:
 
     File file;
     std::int32_t lengthMs = 0;
+    std::string matchId;
     bool compressed = false;
     std::vector<std::uint8_t> header;
     std::vector<Marker> markers;

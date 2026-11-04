@@ -44,6 +44,7 @@ public:
 
     Interval getSpan() const { return span; }
 
+    std::string_view getMatchId() const { return matchId; }
     std::string_view getBranch() const { return branch; }
     std::uint32_t getChangelist() const { return changelist; }
     float getLength() const { return length; }
@@ -60,6 +61,7 @@ public:
 private:
     void readRounds();
 
+    std::string matchId;
     std::string branch;
     std::uint32_t changelist = 0;
     float length = 0;

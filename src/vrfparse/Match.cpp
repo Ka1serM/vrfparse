@@ -46,6 +46,7 @@ std::expected<void, Error> Match::read(const std::filesystem::path& file, const 
     if (!transform.isKnown())
         return std::unexpected(Error{ErrorCode::Version, std::format("The game release {} is not supported: its payload transform is not known.", header.branch)});
     length = static_cast<float>(replay.getLengthMs()) / 1000.0f;
+    matchId = replay.getMatchId();
     changelist = header.changelist;
     markers = std::move(replay.getMarkers());
     readRounds();

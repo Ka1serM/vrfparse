@@ -112,8 +112,11 @@ std::expected<void, Error> LocalFileReplay::open(const std::filesystem::path& pa
     file.skip(static_cast<std::uint64_t>(customVersionCount) * customVersionSize);
     lengthMs = file.read<std::int32_t>();
     file.skip(8);
-    const auto nameLength = file.read<std::int32_t>();
-    file.skip(static_cast<std::uint64_t>(nameLength < 0 ? -std::int64_t{nameLength} * 2 : std::int64_t{nameLength}));
+    //! The game writes the match id as the FriendlyName, padded with spaces. A renamed file keeps it.
+    matchId = file.readString();
+    matchId.erase(matchId.find_last_not_of(' ') + 1);
+    if (matchId.empty() && !file.isError())
+        return std::unexpected(Error{ErrorCode::Parse, "The replay names no match."});
     file.skip(12);
     compressed = file.read<std::uint32_t>() != 0;
     if (file.read<std::uint32_t>() != 0 && !file.isError())
