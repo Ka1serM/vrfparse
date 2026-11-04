@@ -1,6 +1,6 @@
-#include "byte_reader.h"
+#include "vrfparse/ByteReader.h"
 
-#include "vrfparse/bit_reader.h"
+#include "vrfparse/BitReader.h"
 
 namespace vrfparse {
 

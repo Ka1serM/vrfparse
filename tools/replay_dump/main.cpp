@@ -1,5 +1,3 @@
-// Prints a replay's events or match facts in the C# parser's dump format, for parity runs: replay_dump count|events|match <file.vrf>.
-// replay_dump summary <file.vrf> prints the match facts of the overview, read from the last checkpoint on.
 #include <bit>
 #include <cstdio>
 #include <format>
@@ -8,14 +6,13 @@
 #include <print>
 #include <vector>
 
-#include "vrfparse/match.h"
-#include "vrfparse/timeline.h"
+#include "vrfparse/Match.h"
+#include "vrfparse/Timeline.h"
 
 namespace {
 
 std::string bits(const float value) { return std::format("{:08x}", std::bit_cast<std::uint32_t>(value)); }
 std::string vector(const vrfparse::Vector& v) { return std::format("{},{},{}", bits(v.x), bits(v.y), bits(v.z)); }
-// The payload's bytes, with zeros after its bits.
 std::string hex(const vrfparse::Event& event) {
     std::vector<std::uint8_t> bytes(static_cast<std::size_t>((event.payloadBits + 7) / 8));
     event.readPayload().readBits(bytes, event.payloadBits);
@@ -126,7 +123,6 @@ int main(const int argc, char** argv) {
             out += std::format("problems\t{}\n", timeline.getProblems().size());
             for (const std::string& p : timeline.getProblems())
                 out += std::format("problem\t{}\n", p);
-            // Queries: "pose|health|shield <character> <time bits>".
             std::ifstream queries(argc > 3 ? argv[3] : "");
             std::string kind;
             std::uint32_t character;

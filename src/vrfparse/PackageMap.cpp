@@ -1,34 +1,31 @@
-#include "package_map.h"
+#include "vrfparse/PackageMap.h"
 
 #include <algorithm>
 #include <format>
 
-#include "vrfparse/bit_reader.h"
-#include "vrfparse/unreal_names.h"
-#include "byte_reader.h"
+#include "vrfparse/BitReader.h"
+#include "vrfparse/UnrealNames.h"
+#include "vrfparse/ByteReader.h"
 
 namespace vrfparse {
 
 namespace {
 
-// UPackageMapClient::InternalLoadObject stops at this depth of outers.
+//! UPackageMapClient::InternalLoadObject stops at this depth of outers.
 constexpr int maxOuterDepth = 16;
-// No class has more properties and functions; a larger export count is a misread.
+//! No class has more properties and functions; a larger export count is a misread.
 constexpr std::uint32_t maxExportCount = 1 << 16;
 constexpr std::string_view defaultPrefix = "Default__";
 
-// EGuidPackageMapExportFlags.
 constexpr std::uint8_t hasPathFlag = 1;
 constexpr std::uint8_t hasNetworkChecksumFlag = 4;
 
-// FName's text: the number is the suffix + 1, and 0 has none.
 std::string_view appendNumber(std::string& text, const std::int32_t number) {
     if (number > 0)
         std::format_to(std::back_inserter(text), "_{}", number - 1);
     return text;
 }
 
-// UPackageMap::StaticSerializeName of a byte archive: bHardcoded takes a byte.
 std::string_view readExportName(ByteReader& reader, std::string& text) {
     if (reader.readUInt8() != 0) {
         const std::optional<std::string_view> name = findHardcodedName(reader.readIntPacked());
@@ -63,7 +60,6 @@ std::uint32_t PackageMap::loadObject(BitReader& reader, const bool exporting, co
     const std::uint32_t guid = reader.serializeIntPacked();
     if (guid == 0 || reader.isError())
         return guid;
-    // FNetworkGUID::IsDefault.
     const std::uint8_t flags = guid == 1 || exporting ? reader.readByte() : 0;
     if ((flags & hasPathFlag) == 0)
         return guid;
@@ -86,8 +82,7 @@ void PackageMap::addExport(const std::uint32_t guid, const std::uint32_t outer, 
 }
 
 void PackageMap::receiveNetGuidBunch(BitReader& reader) {
-    // bHasRepLayoutExport: the export groups of old replays, which came in bunches.
-    // Unreal 5.3 does not send them.
+    //! Only old replays send export groups in bunches; Unreal 5.3 does not.
     if (reader.readBit())
         return reader.setError();
     const std::int32_t count = reader.readInt32();
@@ -97,7 +92,6 @@ void PackageMap::receiveNetGuidBunch(BitReader& reader) {
 
 void PackageMap::receiveExportData(ByteReader& reader) {
     receiveNetFieldExports(reader);
-    // UPackageMapClient::ReceiveNetExportGUIDs: each export in a byte array of its own.
     const std::uint32_t count = reader.readIntPacked();
     for (std::uint32_t i = 0; i < count && !reader.isError(); ++i) {
         const std::span<const std::uint8_t> bytes = reader.readByteArray();
@@ -141,7 +135,6 @@ void PackageMap::receiveNetFieldExports(ByteReader& reader) {
 }
 
 void PackageMap::receiveCheckpoint(ByteReader& reader) {
-    // FReplayCustomVersion::GuidNameTable: a path that the cache sent before comes as its index in the sent paths.
     std::vector<std::string_view> paths;
     const std::int32_t guidCount = reader.readInt32();
     if (guidCount < 0)
@@ -158,7 +151,6 @@ void PackageMap::receiveCheckpoint(ByteReader& reader) {
                 return reader.setError("a NetGUID names a path that the checkpoint did not send");
             path = paths[index];
         }
-        // bNoLoad and bIgnoreWhenMissing.
         reader.readUInt8();
         if (!reader.isError())
             addExport(guid, outer, path);
@@ -194,7 +186,6 @@ bool PackageMap::readFieldExport(ByteReader& reader, ExportGroup& group, std::st
     if (reader.readUInt8() != 1)
         return false;
     const std::uint32_t handle = reader.readIntPacked();
-    // CompatibleChecksum.
     reader.skip(4);
     const std::string_view name = readExportName(reader, text);
     if (reader.isError() || handle >= group.names.size())
@@ -222,7 +213,6 @@ std::string PackageMap::getPathName(const std::uint32_t guid) const {
     std::string outerPath = getPathName(entry.outer);
     if (outerPath.empty())
         return {};
-    // SUBOBJECT_DELIMITER after an object whose outer is a package.
     const auto outer = exports.find(entry.outer);
     const auto outerOuter = exports.find(outer->second.outer);
     const bool outerInPackage = outer->second.outer != 0 && !isDynamicGuid(outer->second.outer) && outerOuter != exports.end() &&
@@ -244,7 +234,7 @@ std::string_view PackageMap::getArchetypeClassPath(const std::uint32_t archetype
     const std::string_view name = getName(archetypeGuid);
     if (!name.starts_with(defaultPrefix))
         return {};
-    // "/Game/A/B.B_C" of "/Game/A/B.Default__B_C": a class default object is in the package of its class.
+    //! A class default object is in the package of its class.
     const auto outer = exports.find(exports.find(archetypeGuid)->second.outer);
     if (outer == exports.end() || outer->second.outer != 0)
         return {};

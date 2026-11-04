@@ -1,4 +1,4 @@
-#include "vrfparse/unreal_names.h"
+#include "vrfparse/UnrealNames.h"
 
 #include <algorithm>
 #include <utility>
@@ -7,7 +7,7 @@ namespace vrfparse {
 
 namespace {
 
-// UnrealNames.inl of Unreal 5.7: the hardcoded names (EName) by index.
+//! UnrealNames.inl of Unreal 5.7.
 constexpr std::pair<std::uint32_t, std::string_view> names[] = {
     {0, "None"},
     {1, "ByteProperty"},

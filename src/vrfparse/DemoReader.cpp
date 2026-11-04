@@ -1,4 +1,4 @@
-#include "demo_reader.h"
+#include "vrfparse/DemoReader.h"
 
 #include <algorithm>
 #include <bit>
@@ -7,32 +7,25 @@
 #include <tbb/blocked_range.h>
 #include <tbb/parallel_for.h>
 
-#include "byte_reader.h"
-#include "net_quantize.h"
-#include "vrfparse/bit_reader.h"
+#include "vrfparse/ByteReader.h"
+#include "vrfparse/NetQuantize.h"
+#include "vrfparse/BitReader.h"
 
 namespace vrfparse {
 
 namespace {
 
-// MAX_REPLAY_PACKET: the largest packet of a replay connection, which also bounds a bunch's payload.
 constexpr std::uint32_t maxPacketBytes = 2 * 1024;
 constexpr std::uint32_t maxPacketBits = maxPacketBytes * 8;
 constexpr std::string_view actorChannelName = "Actor";
-// The player controllers of Valorant's replays. APlayerController::OnActorChannelOpen reads a NetPlayerIndex from the
-// open bunch of one.
 constexpr std::string_view playerControllerClasses[] = {"/Game/Characters/_Core/BaseReplayController.BaseReplayController_C"};
 
-// About 15 KB of payloads at the mean content block size: a task that outweighs its scheduling.
+//! About 15 KB of payloads at the mean content block size: a task that outweighs its scheduling.
 constexpr std::size_t blocksPerTask = 128;
-// About 1 MB of events.
 constexpr std::size_t eventsPerTask = 8192;
-// DEFAULT_MAX_CHANNEL_SIZE: UNetConnection's channel count.
 constexpr std::uint32_t maxChannels = 32767;
-// EChannelCloseReason::MAX.
 constexpr std::uint32_t closeReasonCount = 15;
 
-// The spawn vectors of UPackageMapClient::SerializeNewActor: whether it is sent, whether it is quantized, then the value.
 Vector readSpawnVector(BitReader& reader, const Vector fallback) {
     if (!reader.readBit())
         return fallback;
@@ -41,7 +34,6 @@ Vector readSpawnVector(BitReader& reader, const Vector fallback) {
     return readVector(reader);
 }
 
-// FRotator::SerializeCompressedShort.
 Rotator readRotatorShort(BitReader& reader) {
     const auto component = [&] { return reader.readBit() ? decompressAxisFromShort(reader.readUInt16()) : 0.0f; };
     const float pitch = component();
@@ -49,11 +41,6 @@ Rotator readRotatorShort(BitReader& reader) {
     return {pitch, yaw, component()};
 }
 
-// FObjectReplicator::ReceivedBunch's parts of a content block's payload: the RepLayout properties
-// (FRepLayout::ReceiveProperties_BackwardsCompatible: the checksum bit, then each property by its handle + 1, until 0),
-// then the class net cache fields (custom delta properties and RPCs), unframed, whose handles index the export group
-// "<class>_ClassNetCache". The visitor gets each part's handle, -1 for the class net cache fields, and its bits in the
-// payload. False when the payload is damaged.
 template <class Visit>
 bool splitContentBlock(const Event& block, Visit&& visit) {
     BitReader content = block.readPayload();
@@ -75,7 +62,6 @@ bool splitContentBlock(const Event& block, Visit&& visit) {
     return !content.isError();
 }
 
-// The part of the block's payload from the bit on.
 Event partOf(const Event& block, Event part, const std::int64_t start, const std::int64_t bits) {
     part.time = block.time;
     part.channel = block.channel;
@@ -94,8 +80,6 @@ DemoReader::DemoReader(const NetworkDemoHeader& header, const PayloadTransform t
     : log(log), problems(problems), transform(transform), hasStreamingFixes(header.hasFlag(ReplayHeaderFlags::HasStreamingFixes)),
       hasDeltaCheckpoints(header.hasFlag(ReplayHeaderFlags::DeltaCheckpoints)), hasGameSpecificFrameData(header.hasFlag(ReplayHeaderFlags::GameSpecificFrameData)), packageMap(log) {}
 
-// The frames, then their content blocks: a payload does not change how the bunches are read, so the blocks of the chunk
-// are decoded at once, in parallel. finish puts them in the log with their parts.
 std::expected<void, Error> DemoReader::readFrames(const std::span<const std::uint8_t> data) {
     beginChunk();
     ByteReader reader(data);
@@ -110,11 +94,9 @@ std::expected<void, Error> DemoReader::readCheckpoint(const std::span<const std:
     beginChunk();
     ByteReader reader(data);
     while (!reader.atEnd() && !reader.isError() && !failure) {
-        // PacketOffset, then the level index.
         if (hasStreamingFixes)
             reader.skip(8);
         reader.skip(4);
-        // The paths of the startup actors that were deleted before the checkpoint: the log has no event for them.
         const std::int32_t deletedCount = reader.readInt32();
         if (deletedCount < 0)
             reader.setError("the deleted startup actor count is negative");
@@ -127,7 +109,6 @@ std::expected<void, Error> DemoReader::readCheckpoint(const std::span<const std:
 }
 
 void DemoReader::beginChunk() {
-    // A chunk has about as many events as the one before.
     log.addPendingChunk(log.getPending().empty() ? 0 : log.getPending().back().size());
     chunkBlocks.emplace_back().reserve(chunkBlocks.size() > 1 ? chunkBlocks[chunkBlocks.size() - 2].size() : 0);
 }
@@ -161,8 +142,6 @@ void DemoReader::decodeContentBlocks() {
     fail(std::format("The content block of a bunch of channel {} at {:.3f} s cannot be read.", event.channel, event.time));
 }
 
-// The pending events, each content block with its parts after it, into storage of their exact count: one pass names the
-// parts as the export groups come and places them, and then the events are copied to their places in parallel.
 void DemoReader::commitEvents() {
     const std::span<const std::vector<Event>> pending = log.getPending();
     std::unordered_map<const char*, std::span<const std::string_view>> fieldNames;
@@ -174,7 +153,6 @@ void DemoReader::commitEvents() {
         auto block = chunkBlocks[chunk].begin();
         for (std::size_t i = 0; i < pending[chunk].size(); ++i) {
             const Event& event = pending[chunk][i];
-            // An export group's path and a block's are interned: the same text is the same view.
             if (event.kind == EventKind::ExportGroup)
                 fieldNames[event.path.data()] = event.fieldNames;
             if (block == chunkBlocks[chunk].end() || block->event != i)
@@ -217,40 +195,33 @@ void DemoReader::commitEvents() {
     chunkBlocks = {};
 }
 
-// FReplayHelper::ReadDemoFrame.
 void DemoReader::readFrame(ByteReader& reader) {
-    // The current level index.
     reader.skip(4);
     frameTime = reader.readFloat();
     log.setTime(frameTime);
     packageMap.receiveExportData(reader);
-    // The streaming levels.
     const std::uint32_t levelCount = reader.readIntPacked();
     for (std::uint32_t i = 0; i < levelCount; ++i) {
         reader.readString();
         if (hasStreamingFixes)
             continue;
         reader.readString();
-        // The level's FTransform: a quaternion and two vectors of doubles.
         reader.skip(80);
     }
-    // SkipExternalOffset.
     if (hasStreamingFixes)
         reader.skip(8);
-    // LoadExternalData: the bits, the NetGUID, and the data of each object.
     while (const std::uint32_t bits = reader.readIntPacked()) {
         reader.readIntPacked();
         reader.skip((static_cast<std::uint64_t>(bits) + 7) / 8);
     }
     if (hasGameSpecificFrameData)
         reader.skip(reader.readUInt64());
-    // A frame at or before the latest one: UE reads its packets only to skip them.
+    //! UE reads the packets of a frame at or before the latest one only to skip them.
     const bool appendPackets = latestFrameTime < frameTime;
     if (!appendPackets)
         report(std::format("replay.frame_order: The frame at {:.3f} s is not after the frame before; its packets are skipped.", frameTime));
     latestFrameTime = std::max(latestFrameTime, frameTime);
     while (!reader.isError() && !failure) {
-        // The seen level index.
         if (hasStreamingFixes)
             reader.readIntPacked();
         const std::int32_t size = reader.readInt32();
@@ -264,13 +235,11 @@ void DemoReader::readFrame(ByteReader& reader) {
     }
 }
 
-// UNetConnection::ReceivedRawPacket, ReceivedPacket, and DispatchPacket of a replay connection: no packet header, and
-// every bunch arrives in order.
 void DemoReader::receivedPacket(const std::span<const std::uint8_t> packet) {
     ++packetId;
     if (packet.empty())
         return;
-    // The packet ends with a 1 bit after the last bunch.
+    //! The packet ends with a 1 bit after the last bunch.
     const std::uint8_t last = packet.back();
     if (last == 0)
         return fail(std::format("Packet {} at {:.3f} s has no end bit.", packetId, frameTime));
@@ -293,7 +262,6 @@ void DemoReader::receivedPacket(const std::span<const std::uint8_t> packet) {
             channels.resize(header.channel + 1);
         Channel& channel = channels[header.channel];
         if (!channel.isOpen) {
-            // An unreliable bunch for a channel that is not open opens it, or it is skipped.
             if (!header.reliable && !(header.open && (header.close || header.partial)))
                 continue;
             channel.isOpen = true;
@@ -310,7 +278,6 @@ DemoReader::BunchHeader DemoReader::readBunchHeader(BitReader& reader, const std
     header.close = control && reader.readBit();
     if (header.close)
         header.closeReason = static_cast<ChannelCloseReason>(reader.serializeInt(closeReasonCount));
-    // bIsReplicationPaused.
     reader.readBit();
     header.reliable = reader.readBit();
     header.channel = reader.serializeIntPacked();
@@ -320,10 +287,9 @@ DemoReader::BunchHeader DemoReader::readBunchHeader(BitReader& reader, const std
     if (header.reliable) {
         header.sequence = (header.channel < channels.size() ? channels[header.channel].reliableSequence : 0) + 1;
     } else if (header.partial) {
-        // An unreliable partial bunch takes the packet's sequence.
         header.sequence = static_cast<std::int32_t>(packet);
     }
-    // Valorant's own bit, which Unreal 5.3 does not have.
+    //! Valorant's own bit, which Unreal 5.3 does not have.
     reader.readBit();
     header.partialInitial = header.partial && reader.readBit();
     header.partialFinal = header.partial && reader.readBit();
@@ -332,7 +298,6 @@ DemoReader::BunchHeader DemoReader::readBunchHeader(BitReader& reader, const std
     return header;
 }
 
-// UChannel::ReceivedRawBunch and ReceivedNextBunch: a partial bunch waits for the rest of its payload.
 void DemoReader::receivedRawBunch(Channel& channel, const BunchHeader& header, BitReader& payload) {
     if (header.reliable)
         channel.reliableSequence = header.sequence;
@@ -362,7 +327,7 @@ void DemoReader::receivedRawBunch(Channel& channel, const BunchHeader& header, B
         }
         partial.header.sequence = header.sequence;
     }
-    // Only the final part may end within a byte.
+    //! Only the final part may end within a byte.
     if (partial.bits % 8 != 0 && bits > 0)
         return fail(std::format("A partial bunch of channel {} at {:.3f} s is not byte aligned.", header.channel, frameTime));
     partial.data.resize(static_cast<std::size_t>((partial.bits + bits + 7) / 8));
@@ -370,7 +335,7 @@ void DemoReader::receivedRawBunch(Channel& channel, const BunchHeader& header, B
     partial.bits += bits;
     if (header.partialInitial || !header.partialFinal)
         return;
-    // The joined bunch has the open of the first part and the close of the last.
+    //! The joined bunch has the open of the first part and the close of the last.
     channel.hasPartial = false;
     BunchHeader joined = partial.header;
     joined.partialFinal = true;
@@ -381,10 +346,8 @@ void DemoReader::receivedRawBunch(Channel& channel, const BunchHeader& header, B
     receivedSequencedBunch(channel, joined, joinedPayload);
 }
 
-// UChannel::ReceivedSequencedBunch: the bunch, then the close, which destroys the channel.
 void DemoReader::receivedSequencedBunch(Channel& channel, const BunchHeader& header, BitReader& payload) {
     if (channel.isActorChannel) {
-        // UActorChannel::ReceivedBunch.
         if (header.hasMustBeMappedGuids) {
             const std::uint16_t count = payload.readUInt16();
             for (std::uint16_t i = 0; i < count; ++i)
@@ -401,10 +364,8 @@ void DemoReader::receivedSequencedBunch(Channel& channel, const BunchHeader& hea
     channel = Channel();
 }
 
-// UActorChannel::ProcessBunch.
 void DemoReader::processBunch(Channel& channel, const BunchHeader& header, BitReader& payload) {
     if (!channel.hasActor) {
-        // A channel without its actor ignores the bunches until the open one.
         if (!header.open || !serializeNewActor(channel, header, payload))
             return;
     }
@@ -420,7 +381,6 @@ bool DemoReader::serializeNewActor(Channel& channel, const BunchHeader& header, 
     channel.hasActor = true;
     channel.actor = packageMap.loadObject(payload, false);
     Event open{.kind = EventKind::ActorOpen, .channel = header.channel, .actor = channel.actor, .name = packageMap.getName(channel.actor)};
-    // A dynamic actor's spawn data, unless a closing bunch leaves it out.
     if (isDynamicGuid(channel.actor) && !(payload.atEnd() && header.close)) {
         channel.archetype = packageMap.loadObject(payload, false);
         channel.classPath = packageMap.getArchetypeClassPath(channel.archetype);
@@ -438,14 +398,11 @@ bool DemoReader::serializeNewActor(Channel& channel, const BunchHeader& header, 
     if (!check(payload, "SerializeNewActor", header))
         return false;
     log.add(open);
-    // APlayerController::OnActorChannelOpen.
     if (isDynamicGuid(channel.actor) && std::ranges::find(playerControllerClasses, channel.classPath) != std::ranges::end(playerControllerClasses))
         payload.readByte();
     return true;
 }
 
-// UActorChannel::ReadContentBlockPayload: the header, then the payload, which Valorant obfuscates; it is decoded with the
-// other blocks of the data chunk.
 void DemoReader::readContentBlock(const Channel& channel, const std::uint32_t index, BitReader& payload) {
     Event block{.kind = EventKind::ContentBlock, .channel = index, .actor = channel.actor};
     block.hasRepLayout = payload.readBit();
@@ -456,7 +413,6 @@ void DemoReader::readContentBlock(const Channel& channel, const std::uint32_t in
         block.path = channel.classPath;
     } else {
         block.object = packageMap.loadObject(payload, false);
-        // A stably named subobject is found by its name; another one comes with its class, unless it is destroyed.
         if (!payload.readBit()) {
             if (payload.readBit()) {
                 block.deleted = true;

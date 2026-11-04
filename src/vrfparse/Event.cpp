@@ -1,4 +1,4 @@
-#include "vrfparse/event.h"
+#include "vrfparse/Event.h"
 
 #include <algorithm>
 
@@ -6,13 +6,11 @@ namespace vrfparse {
 
 namespace {
 
-// The payloads go into blocks of this size; a larger payload gets its own block.
 constexpr std::size_t payloadBlockSize = std::size_t{1} << 20;
 
 }
 
-// An Event is an implicit-lifetime type: the storage holds events without a constructor run, which a commit of millions
-// of events would pay for each.
+//! An Event is an implicit-lifetime type: a commit of millions of events runs no constructor.
 static_assert(std::is_trivially_copyable_v<Event> && std::is_trivially_destructible_v<Event>);
 
 void EventLog::addPendingChunk(const std::size_t expected) {

@@ -1,4 +1,4 @@
-#include "vrfparse/bit_reader.h"
+#include "vrfparse/BitReader.h"
 
 #include <algorithm>
 #include <bit>
@@ -10,7 +10,7 @@ namespace {
 
 static_assert(std::endian::native == std::endian::little, "The reader loads the stream's words as little endian.");
 
-// Longer strings do not occur in replays; a longer length is a misread.
+//! Replays have no longer strings: a longer length is a misread.
 constexpr std::int32_t maxStringLength = 1 << 16;
 
 std::uint64_t lowBits(const int count) { return count >= 64 ? ~std::uint64_t{0} : (std::uint64_t{1} << count) - 1; }

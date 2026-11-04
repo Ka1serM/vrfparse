@@ -5,15 +5,11 @@
 #include <span>
 #include <string_view>
 
-#include "vrfparse/bit_reader.h"
+#include "vrfparse/BitReader.h"
 
 namespace vrfparse {
 
-// The property streams of a replay, which name each property by its export in an export group
-// (FRepLayout::ReceiveProperties_BackwardsCompatible_r). The visitors get the export name and the property's payload;
-// a handle that the group does not name has an empty name. They return false when the stream is damaged.
 
-// The properties until the 0 handle: each by its handle + 1, with the payload's bit count.
 template <class Visit>
 bool readProperties(BitReader& stream, const std::span<const std::string_view> names, Visit&& visit) {
     while (!stream.atEnd()) {
@@ -31,15 +27,12 @@ bool readProperties(BitReader& stream, const std::span<const std::string_view> n
     return true;
 }
 
-// The payload of an RPC: the checksum bit, then its parameters.
 template <class Visit>
 bool readParameters(BitReader& stream, const std::span<const std::string_view> names, Visit&& visit) {
     stream.readBit();
     return readProperties(stream, names, visit);
 }
 
-// The payload of a dynamic array property: the element count, then each changed element by its index + 1, with its
-// properties, until 0. The visitor gets the index and reads the element's properties from the stream.
 template <class Visit>
 bool readArray(BitReader& payload, Visit&& visitElement) {
     payload.serializeIntPacked();
@@ -54,12 +47,10 @@ bool readArray(BitReader& payload, Visit&& visitElement) {
     }
 }
 
-// FObjectPropertyBase::NetSerializeItem: the NetGUID. A default NetGUID (1) brings its export, which is skipped.
 inline std::uint32_t readObject(BitReader& payload) {
     const std::uint32_t guid = payload.serializeIntPacked();
     if (guid != 1)
         return guid;
-    // EGuidPackageMapExportFlags::bHasPath: the outer, the path, and with bHasNetworkChecksum the checksum.
     const std::uint8_t flags = payload.readByte();
     if ((flags & 1) == 0)
         return guid;
@@ -70,7 +61,6 @@ inline std::uint32_t readObject(BitReader& payload) {
     return guid;
 }
 
-// An enum property: its value in the payload's bits (FByteProperty::NetSerializeItem with GetMaxNetSerializeBits).
 inline std::uint32_t readEnum(BitReader& payload) {
     return static_cast<std::uint32_t>(payload.readBits(static_cast<int>(std::min<std::int64_t>(payload.getBitsLeft(), 32))));
 }

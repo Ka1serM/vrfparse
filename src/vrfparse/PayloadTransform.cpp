@@ -1,4 +1,4 @@
-#include "payload_transform.h"
+#include "vrfparse/PayloadTransform.h"
 
 #include <algorithm>
 #include <array>
@@ -12,15 +12,8 @@ namespace vrfparse {
 
 namespace {
 
-// Riot's obfuscation of the content block payloads, one per game release. The authors of ValorantReplayParser
-// recovered each from that release's executable (the 13.08 one is FUN_144539860); the steps below are its
-// ValorantSeededTransform classes. A transform turns the payload in place: the 64-bit words, then the 32-bit words,
-// then the bytes, each with the state of a xorshift generator, and the last bits with the generator's byte.
-//
-// The game has the same step for the three widths. Only the keys that it takes from the state differ: a 64-bit word
-// rotates the state right, a 32-bit word rotates it left, and a byte multiplies it by 11^n.
+//! ValorantReplayParser recovered each transform from its release's executable; the 13.08 one is FUN_144539860.
 
-// A word of the payload, whose operators wrap at its width.
 template <std::unsigned_integral T>
 struct Word {
     static constexpr int bits = std::numeric_limits<T>::digits;
@@ -37,7 +30,6 @@ Word<T> rotl(const Word<T> word, const int count) { return {std::rotl(word.value
 template <class T>
 Word<T> rotr(const Word<T> word, const int count) { return {std::rotr(word.value, count)}; }
 
-// Swaps each group of the size with its neighbour.
 template <class T>
 Word<T> swapGroups(const Word<T> word, const int size) {
     const auto low = static_cast<T>(static_cast<T>(~T{}) / static_cast<T>((T{1} << size) + 1));
@@ -47,8 +39,7 @@ Word<T> swapGroups(const Word<T> word, const int size) {
 template <class T>
 Word<T> swapAdjacentBits(const Word<T> word) { return swapGroups(word, 1); }
 
-// The game's bit reversal: it swaps the groups of 1, 2, 4, and 8 bits that are smaller than half the word, then the
-// halves. That reverses a byte and a 32-bit word; a 64-bit word keeps the order of the bits' 16-bit groups.
+//! The game's bit reversal keeps the order of the 16-bit groups of a 64-bit word.
 template <class T>
 Word<T> reverse(Word<T> word) {
     for (const int size : {1, 2, 4, 8})
@@ -114,7 +105,6 @@ constexpr std::uint8_t substitutionTable8[256] = {
     0x01, 0xcb, 0xc0, 0x63, 0xdf, 0x3b, 0x8e, 0xc7, 0x31, 0xb1, 0xa1, 0xb6, 0xe6, 0x7b, 0x4b, 0x4f,
 };
 
-// Substitutes each byte of the word with the table of its width.
 template <class T>
 Word<T> substitute(const Word<T> word) {
     constexpr const std::uint8_t* table = sizeof(T) == 8 ? substitutionTable64 : sizeof(T) == 4 ? substitutionTable32 : substitutionTable8;
@@ -124,17 +114,13 @@ Word<T> substitute(const Word<T> word) {
     return {result};
 }
 
-// The keys of a word's step, from the generator's state: key n is the state rotated by n, or multiplied by 11^n for a
-// byte.
 template <class T>
 class Key {
 public:
     explicit Key(const std::uint32_t state) : state(state) {}
 
     Word<T> add(const int n) const { return {static_cast<T>(source(n))}; }
-    // A 64-bit word's mask has the high 32 bits set.
     Word<T> mask(const int n) const { return sizeof(T) == 8 ? ~add(n) : add(n); }
-    // A rotation by 1 to the word's width - 1.
     int turns(const int n) const { return static_cast<int>(source(n) % (Word<T>::bits - 1)) + 1; }
 
 private:
@@ -158,10 +144,8 @@ private:
 
 constexpr std::uint64_t seedMultiplier = 0x2545f4914f6cdd1dULL;
 
-// The start of a generator half: the seed's xorshift, times the multiplier.
 std::uint64_t mixSeed(const std::uint32_t seed) { return std::uint64_t{(((seed >> 15) ^ seed) >> 12) ^ (seed << 25) ^ seed} * seedMultiplier; }
 
-// The generator (xoroshiro128+): two 64-bit halves, whose sum's high half is the state of the next word.
 class Generator {
 public:
     Generator(const std::uint32_t seed, const std::uint32_t seedAddend) : a(mixSeed(seed + seedAddend)), b(mixSeed(seed)), state(seed) {}
@@ -181,7 +165,6 @@ private:
     std::uint32_t state;
 };
 
-// A release: the seed addend of its generator, which also masks the last bits, and the step of its words.
 template <class Release>
 void decodeRelease(const std::span<std::uint8_t> payload, const std::int64_t bits, const std::uint32_t seed) {
     Generator generator(seed, Release::seedAddend);
@@ -500,7 +483,6 @@ PayloadTransform::PayloadTransform(const std::string_view branch) {
 }
 
 void PayloadTransform::decode(const std::span<std::uint8_t> payload, const std::int64_t bits, const std::uint32_t actorGuid) const {
-    // The seed is the payload's size in bits with the NetGUID of the channel's actor.
     apply(payload, bits, static_cast<std::uint32_t>(bits) ^ actorGuid);
 }
 

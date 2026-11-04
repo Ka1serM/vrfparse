@@ -1,36 +1,29 @@
-#include "local_file_replay.h"
+#include "vrfparse/LocalFileReplay.h"
 
 #include <charconv>
 #include <cstring>
 #include <format>
 
-#include "byte_reader.h"
+#include "vrfparse/ByteReader.h"
 
-// ooz: kraken.cpp. Returns the decoded size, or -1.
 int Kraken_Decompress(const std::uint8_t* source, std::size_t sourceSize, std::uint8_t* destination, std::size_t destinationSize);
 
 namespace vrfparse {
 
 namespace {
 
-// Valorant's file magic; Unreal's FLocalFileNetworkReplayStreamer::FileMagic is 0x1CA2E27F.
+//! Valorant's file magic; Unreal's FLocalFileNetworkReplayStreamer::FileMagic is 0x1CA2E27F.
 constexpr std::uint32_t fileMagic = 0x43F4EFDD;
-// FLocalFileReplayCustomVersion::LatestVersion of Unreal 5.3: the replay info has every field below.
 constexpr std::uint32_t fileVersion = 7;
 constexpr std::uint32_t networkMagic = 0x2CF5A13D;
-// ENetworkVersionHistory and FEngineNetworkCustomVersion of Unreal 5.3: the packet and bunch formats that this reader
-// reads.
 constexpr std::uint32_t networkVersion = 19;
 constexpr std::uint32_t engineNetworkProtocolVersion = 32;
-// FEngineVersion of the recording build.
 constexpr std::uint16_t engineMajor = 5;
 constexpr std::uint16_t engineMinor = 3;
-// ooz reads and writes up to 64 bytes past its buffers ("Kraken_Decompress").
+//! ooz reads and writes up to 64 bytes past its buffers ("Kraken_Decompress").
 constexpr std::size_t oodleSlack = 64;
-// FCustomVersion: a GUID and the version.
 constexpr std::uint64_t customVersionSize = 20;
 
-// ELocalFileChunkType.
 enum class ChunkType : std::uint32_t { Header, ReplayData, Checkpoint, Event };
 
 std::unexpected<Error> damaged(const std::string_view what, const ByteReader& reader) {
@@ -40,7 +33,7 @@ std::unexpected<Error> damaged(const std::string_view what, const ByteReader& re
 }
 
 bool LocalFileReplay::File::open(const std::filesystem::path& path) {
-    // libc++ takes the buffer only before the file opens.
+    //! libc++ takes the buffer only before the file opens.
     stream.rdbuf()->pubsetbuf(buffer.data(), static_cast<std::streamsize>(buffer.size()));
     stream.open(path, std::ios::binary);
     if (!stream)
@@ -69,7 +62,6 @@ void LocalFileReplay::File::read(std::vector<std::uint8_t>& buffer, const std::s
 
 std::string LocalFileReplay::File::readString() {
     const auto length = read<std::int32_t>();
-    // A negative length counts UTF-16 characters.
     const std::uint64_t count = length < 0 ? static_cast<std::uint64_t>(-std::int64_t{length}) * 2 : static_cast<std::uint64_t>(length);
     if (isError() || count > size - offset) {
         setError("the file ends");
@@ -94,7 +86,7 @@ void LocalFileReplay::File::skip(const std::uint64_t count) {
 void LocalFileReplay::File::seek(const std::uint64_t to) {
     if (to > size)
         return setError("the file ends");
-    // A seek drops the stream's buffer, so only a real move seeks.
+    //! A seek drops the stream's buffer, so only a real move seeks.
     if (to != offset)
         stream.seekg(static_cast<std::streamoff>(to));
     offset = to;
@@ -104,8 +96,6 @@ std::unexpected<Error> LocalFileReplay::File::fail() const {
     return std::unexpected(Error{ErrorCode::Parse, std::format("The replay file is damaged at byte {}: {}.", offset, reason)});
 }
 
-// FLocalFileNetworkReplayStreamer::ReadReplayInfo, then the chunk headers. Only the header and the event chunks are read
-// whole; the replay data chunks and the checkpoints are read when they are decompressed.
 std::expected<void, Error> LocalFileReplay::open(const std::filesystem::path& path) {
     if (!file.open(path))
         return std::unexpected(Error{ErrorCode::Open, std::format("'{}' cannot be opened.", path.string())});
@@ -121,11 +111,9 @@ std::expected<void, Error> LocalFileReplay::open(const std::filesystem::path& pa
         file.setError("the custom version count is negative");
     file.skip(static_cast<std::uint64_t>(customVersionCount) * customVersionSize);
     lengthMs = file.read<std::int32_t>();
-    // NetworkVersion and Changelist, then FriendlyName: an FString, negative for UTF-16 characters.
     file.skip(8);
     const auto nameLength = file.read<std::int32_t>();
     file.skip(static_cast<std::uint64_t>(nameLength < 0 ? -std::int64_t{nameLength} * 2 : std::int64_t{nameLength}));
-    // bIsLive and Timestamp.
     file.skip(12);
     compressed = file.read<std::uint32_t>() != 0;
     if (file.read<std::uint32_t>() != 0 && !file.isError())
@@ -177,11 +165,10 @@ std::expected<void, Error> LocalFileReplay::open(const std::filesystem::path& pa
             break;
         }
         case ChunkType::Checkpoint: {
-            // Id and Group, then Metadata: the index of the data chunk after the checkpoint.
             file.readString();
             file.readString();
             const std::string metadata = file.readString();
-            // Time1, then Time2, which is the same.
+            //! Time2 is the same as Time1.
             const auto timeMs = file.read<std::uint32_t>();
             file.skip(4);
             const auto dataSize = file.read<std::int32_t>();
@@ -216,7 +203,6 @@ std::expected<void, Error> LocalFileReplay::readCheckpoint(const Checkpoint& che
     return readChunkData(checkpoint.offset, checkpoint.size, std::nullopt, data);
 }
 
-// The sizes, then the Oodle data.
 std::expected<void, Error> LocalFileReplay::readChunkData(const std::uint64_t offset, const std::uint32_t size, const std::optional<std::uint32_t> memorySize,
                                        std::vector<std::uint8_t>& data) {
     file.seek(offset);
@@ -229,7 +215,6 @@ std::expected<void, Error> LocalFileReplay::readChunkData(const std::uint64_t of
     if (decompressedSize < 0 || (memorySize && static_cast<std::uint32_t>(decompressedSize) != *memorySize) || compressedSize < 0 ||
         static_cast<std::uint64_t>(compressedSize) + 8 > size)
         file.setError("the compressed sizes do not match the chunk");
-    // The slack keeps ooz's reads and writes past the ends in the buffers.
     file.read(compressedData, static_cast<std::size_t>(compressedSize), oodleSlack);
     if (file.isError())
         return file.fail();
@@ -241,7 +226,7 @@ std::expected<void, Error> LocalFileReplay::readChunkData(const std::uint64_t of
     return {};
 }
 
-// FNetworkDemoHeader's operator<<, with Valorant's block of its own after the engine version.
+//! Valorant adds a block of its own after the engine version.
 std::expected<void, Error> NetworkDemoHeader::read(const std::span<const std::uint8_t> data) {
     ByteReader reader(data);
     if (reader.readUInt32() != networkMagic)
@@ -253,17 +238,14 @@ std::expected<void, Error> NetworkDemoHeader::read(const std::span<const std::ui
     if (customVersionCount < 0)
         reader.setError("the custom version count is negative");
     reader.skip(static_cast<std::uint64_t>(customVersionCount) * customVersionSize);
-    // NetworkChecksum.
     reader.skip(4);
     const std::uint32_t protocolVersion = reader.readUInt32();
     if (!reader.isError() && protocolVersion != engineNetworkProtocolVersion)
         return std::unexpected(Error{ErrorCode::Version, std::format("The replay engine network protocol {} is not supported; {} is.", protocolVersion,
                                                     engineNetworkProtocolVersion)});
-    // GameNetworkProtocolVersion, Guid.
     reader.skip(20);
     const std::uint16_t major = reader.readUInt16();
     const std::uint16_t minor = reader.readUInt16();
-    // Patch.
     reader.skip(2);
     changelist = reader.readUInt32();
     branch = reader.readString();
@@ -271,14 +253,12 @@ std::expected<void, Error> NetworkDemoHeader::read(const std::span<const std::ui
         return std::unexpected(Error{ErrorCode::Version, std::format("The replay was recorded with Unreal {}.{} ({}); only {}.{} is supported.", major, minor,
                                                     branch, engineMajor, engineMinor)});
     reader.skip(reader.readUInt32());
-    // FPackageFileVersion and the licensee version.
     reader.skip(12);
     const std::int32_t levelCount = reader.readInt32();
     if (levelCount < 0)
         reader.setError("the level count is negative");
     for (std::int32_t i = 0; i < levelCount && !reader.isError(); ++i) {
         levels.push_back(reader.readString());
-        // The time of the level.
         reader.skip(4);
     }
     flags = reader.readUInt32();

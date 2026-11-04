@@ -1,11 +1,10 @@
-// The payload transform of each game release against the output of ValorantReplayParser's transforms: payloads of 0 to
-// 200 bits, which reach every word width and every count of last bits.
+//! The hashes are of ValorantReplayParser's transforms over payloads of 0 to 200 bits.
 #include <cstdint>
 #include <print>
 #include <string>
 #include <vector>
 
-#include "payload_transform.h"
+#include "vrfparse/PayloadTransform.h"
 
 namespace {
 
@@ -44,8 +43,7 @@ constexpr Expected releases[] = {
     {"china-13.05", 0x28c74dbab115021aULL},
 };
 
-// FNV-1a.
-std::uint64_t hashOf(const std::vector<std::uint8_t>& bytes) {
+std::uint64_t fnv1aHash(const std::vector<std::uint8_t>& bytes) {
     std::uint64_t hash = 0xcbf29ce484222325ULL;
     for (const std::uint8_t byte : bytes)
         hash = (hash ^ byte) * 0x100000001b3ULL;
@@ -67,7 +65,7 @@ int main() {
                 transform.decode(payload, bits, 0x2468ACE1u);
             decoded.insert(decoded.end(), payload.begin(), payload.end());
         }
-        if (transform.isKnown() && hashOf(decoded) == expected.hash)
+        if (transform.isKnown() && fnv1aHash(decoded) == expected.hash)
             continue;
         std::println(stderr, "The payload transform of release {} does not match.", expected.release);
         ++failures;

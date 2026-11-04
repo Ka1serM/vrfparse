@@ -1,4 +1,4 @@
-#include "vrfparse/timeline.h"
+#include "vrfparse/Timeline.h"
 
 #include <algorithm>
 #include <cmath>
@@ -7,23 +7,21 @@
 #include <map>
 #include <unordered_set>
 
-#include "vrfparse/bit_reader.h"
-#include "component_data_stream.h"
-#include "package_map.h"
-#include "vrfparse/rep_properties.h"
+#include "vrfparse/BitReader.h"
+#include "vrfparse/ComponentDataStream.h"
+#include "vrfparse/PackageMap.h"
+#include "vrfparse/RepProperties.h"
 
 namespace vrfparse {
 
 namespace {
 
-// EAresGamePhase.
 constexpr int inRoundPhase = 4;
 constexpr int roundEndingPhase = 5;
 
-// A kill and the damage that killed its victim arrive in the same bunch, in either order.
+//! A kill and the damage that killed its victim arrive in the same bunch, in either order.
 constexpr float killingDamageWindow = 1.0f;
 
-// The export groups of the RPCs' parameters: the path of each function in the class that declares it.
 constexpr std::string_view setPhaseFunction = "/Script/ShooterGame.ShooterGameState:MulticastSetPhase";
 constexpr std::string_view killedEnemyFunction = "/Script/ShooterGame.ShooterCharacter:MulticastNotifyKilledEnemy";
 constexpr std::string_view damageBaseFunction = "/Script/ShooterGame.DamageableComponent:MulticastNotifyDamage_Base";
@@ -36,15 +34,12 @@ constexpr std::string_view bombDefusedFunction = "/Game/GameModes/Components/Com
 constexpr std::string_view remoteCharacterUpdatesFunction =
     "/Script/ShooterGame.ReplayPlayerController:ReplaysClientReceiveRemoteCharacterUpdatesSingleArrayNoAutonomous";
 
-// Default subobjects whose content blocks name no class: a stably named subobject is found by its name. The 13.08
-// constructors make them (AAresGameObject: "DamageHandlerComponent", a UDamageableComponent); Comp_BombEvents is a
-// component of the bomb game state Blueprint.
+//! The 13.08 constructors make these subobjects, so their content blocks name no class.
 constexpr std::pair<std::string_view, std::string_view> defaultSubobjectClasses[] = {
     {"DamageHandlerComponent", "/Script/ShooterGame.DamageableComponent"},
     {"Comp_BombEvents", "/Game/GameModes/Components/Comp_BombEvents.Comp_BombEvents_C"},
 };
 
-// The FAresRoundResult fields that the updates of a round named; a field that no update names stays empty.
 struct RoundResult {
     std::optional<Side> winner;
     std::optional<TeamRole> winningRole;
@@ -56,7 +51,6 @@ struct Phase {
     int phase = 0;
 };
 
-// A damage notification that killed its target.
 struct KillingDamage {
     float time = 0;
     std::uint32_t victim = 0;
@@ -79,7 +73,6 @@ struct Move {
     CharacterMove move;
 };
 
-// A life change of a damage, heal, or section notification (FLifeChangeEvent).
 struct LifeChange {
     std::uint32_t component = 0;
     std::optional<float> result;
@@ -93,8 +86,6 @@ std::optional<Side> toSide(const std::string_view team) {
     return std::nullopt;
 }
 
-// Reads the facts from the events in their order, as a client that receives the replay does: the export groups and the
-// NetGUID names as they come, and the replicated fields and RPCs that the timeline needs, by their export names.
 class FactReader {
 public:
     explicit FactReader(const Match& match);
@@ -169,7 +160,6 @@ void FactReader::readField(const Event& field) {
     }
     if (field.name != "RoundResults")
         return;
-    // The game state's TArray<FAresRoundResult>: an update names the changed fields of the changed rounds.
     const std::span<const std::string_view> fields = findNames(field.path);
     std::string text;
     const bool read = readArray(payload, [&](const std::uint32_t round, BitReader& stream) {
@@ -193,8 +183,6 @@ void FactReader::readField(const Event& field) {
         report(field, "RoundResults");
 }
 
-// FObjectReplicator::ReceivedBunch after the RepLayout: each field by its handle in "<class>_ClassNetCache"
-// (UActorChannel::ReadFieldHeaderAndPayload), then its payload.
 void FactReader::readClassNetCache(const Event& cache) {
     std::string_view classPath = cache.path;
     if (classPath.empty() && cache.object != cache.actor) {
@@ -261,7 +249,7 @@ void FactReader::readRpc(const Event& cache, const std::string_view classPath, c
                 readLifeChanges(cache, value, names);
         });
     } else if (function == "BombPlantedRPC") {
-        // A parameter at its default value is not sent: no PlantSite is site A.
+        //! A parameter at its default value is not sent: no PlantSite is site A.
         Spike spike{.time = time, .action = SpikeAction::Plant, .site = 0};
         read = readParameters(payload, findNames(bombPlantedFunction), [&](const std::string_view name, BitReader& value) {
             if (name == "BombPlanter")
@@ -270,7 +258,6 @@ void FactReader::readRpc(const Event& cache, const std::string_view classPath, c
                 spike.site = static_cast<int>(readEnum(value));
             if (name != "PlantLocation")
                 return;
-            // FVector::NetSerialize: three doubles.
             spike.x = static_cast<float>(value.readDouble());
             spike.y = static_cast<float>(value.readDouble());
         });
@@ -291,7 +278,7 @@ void FactReader::readRpc(const Event& cache, const std::string_view classPath, c
         report(cache, function);
 }
 
-// MulticastNotifyDamage_Base and _Point run on the victim's DamageableComponent: the event's actor is the victim.
+//! MulticastNotifyDamage_Base and _Point run on the victim's DamageableComponent.
 void FactReader::readDamage(const Event& cache, BitReader& payload, const std::string_view function) {
     const std::span<const std::string_view> names = findNames(function);
     KillingDamage damage{.time = cache.time, .victim = cache.actor};
@@ -341,7 +328,6 @@ void FactReader::readDamage(const Event& cache, BitReader& payload, const std::s
     killingDamages.push_back(std::move(damage));
 }
 
-// An array of FLifeChangeEvent: the life of each changed section.
 void FactReader::readLifeChanges(const Event& cache, BitReader& payload, const std::span<const std::string_view> names) {
     readArray(payload, [&](std::uint32_t, BitReader& stream) {
         LifeChange change;
@@ -356,7 +342,6 @@ void FactReader::readLifeChanges(const Event& cache, BitReader& payload, const s
     });
 }
 
-// The replay controller's moves of the remote characters: per character, its NetGUID and its FComponentDataStream.
 void FactReader::readRemoteCharacterUpdates(const Event& cache, BitReader& payload) {
     const std::span<const std::string_view> names = findNames(remoteCharacterUpdatesFunction);
     readParameters(payload, names, [&](const std::string_view name, BitReader& value) {
@@ -378,8 +363,6 @@ void FactReader::readRemoteCharacterUpdates(const Event& cache, BitReader& paylo
     });
 }
 
-// A section is named by its component: HealthDamageSection or ShieldDamageSection. Other sections, such as an ability's
-// own life, are not a player's.
 void FactReader::addLife(const float time, const std::uint32_t character, const LifeChange& change) {
     if (!change.result)
         return;
@@ -395,7 +378,6 @@ void FactReader::report(const Event& event, const std::string_view what) {
     problems.push_back(std::format("replay.rpc: {} of actor {} at {:.3f} s does not decode.", what, event.actor, event.time));
 }
 
-// The value of the last time at or before the time, or 0 before the first.
 float valueAt(const std::vector<float>& times, const std::vector<float>& values, const float time) {
     const auto after = std::ranges::upper_bound(times, time);
     if (after == times.begin())
@@ -411,13 +393,11 @@ Timeline::Timeline(const Match& match) {
     playerCount = facts.subjects.size();
     problems = std::move(facts.problems);
 
-    // The rounds are the replay's, so a match that holds part of the events has all of them. The game sets the
-    // RoundStarting phase when it adds the round's marker.
+    //! The game sets the RoundStarting phase when it adds the round's marker.
     for (const Round& round : match.getRounds())
         rounds.push_back({.number = round.number, .start = round.time.start, .close = round.time.end});
     for (const Phase& phase : facts.phases) {
         const auto after = std::ranges::upper_bound(rounds, phase.time, {}, &TimelineRound::start);
-        // A phase before the first round belongs to no round.
         if (after == rounds.begin())
             continue;
         TimelineRound& round = *std::prev(after);
@@ -458,7 +438,7 @@ Timeline::Timeline(const Match& match) {
     }
     spikes = std::move(facts.spikes);
 
-    // An RPC's time is its frame's, and the frames are in time order, so the tracks are too.
+    //! An RPC's time is its frame's, and the frames are in time order.
     for (const Move& move : facts.moves) {
         Track& track = tracks[move.character];
         track.moveTimes.push_back(move.time);

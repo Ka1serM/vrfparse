@@ -1,4 +1,4 @@
-#include "vrfparse/roster.h"
+#include "vrfparse/Roster.h"
 
 #include <algorithm>
 #include <limits>
@@ -8,13 +8,12 @@
 #include <unordered_set>
 #include <utility>
 
-#include "vrfparse/bit_reader.h"
+#include "vrfparse/BitReader.h"
 
 namespace vrfparse {
 
 namespace {
 
-// A field of an actor's own content block, by its export name.
 struct ActorField {
     float time = 0;
     std::uint32_t actor = 0;
@@ -24,9 +23,6 @@ struct ActorField {
 }
 
 Roster::Roster(const Match& match) {
-    // The roster reads facts of the replicated state without the net driver: a pawn's PlayerState, a player state's
-    // Subject and AssignedTeamState, and a team state's TeamComponent. A pawn is a character when its class replicates
-    // ACharacter::ReplicatedMovementMode.
     std::unordered_map<std::uint32_t, bool> actorBlock;
     std::unordered_set<std::uint32_t> characters;
     std::unordered_map<std::uint32_t, std::string_view> netGuidPaths;
@@ -51,7 +47,7 @@ Roster::Roster(const Match& match) {
             teamComponents.push_back({event.time, event.actor, &event});
     }
 
-    // A pawn's PlayerState clears when it is unpossessed, so the last reference that is not 0 names the player.
+    //! A pawn's PlayerState clears when it is unpossessed.
     std::map<std::uint32_t, std::uint32_t> playerOfCharacter;
     for (const ActorField& field : playerStates) {
         if (!characters.contains(field.actor))
@@ -68,7 +64,6 @@ Roster::Roster(const Match& match) {
         if (!payload.isError())
             subjectOf[field.actor] = std::move(subject);
     }
-    // The last assignment that is not 0 names the team.
     std::unordered_map<std::uint32_t, std::uint32_t> teamOf;
     for (const ActorField& field : assignedTeams) {
         BitReader payload = field.event->readPayload();

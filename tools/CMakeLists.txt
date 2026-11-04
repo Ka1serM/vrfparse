@@ -1,4 +1,3 @@
-# Each folder with a main.cpp is a command line tool of the same name.
 file(GLOB tool_mains CONFIGURE_DEPENDS */main.cpp)
 foreach(tool_main IN LISTS tool_mains)
     cmake_path(GET tool_main PARENT_PATH tool_dir)
