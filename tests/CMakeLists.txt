@@ -1,5 +1,5 @@
-# The tests of the library's parts, which reach its private headers.
-add_executable(payload_transform_test payload_transform_test.cpp)
-target_include_directories(payload_transform_test PRIVATE ${PROJECT_SOURCE_DIR}/src)
+find_package(Python3 3.10 REQUIRED COMPONENTS Interpreter)
+add_executable(payload_transform_test PayloadTransformTest.cpp)
 target_link_libraries(payload_transform_test PRIVATE vrfparse::vrfparse)
 add_test(NAME payload_transform COMMAND payload_transform_test)
+add_test(NAME comments COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/check_comments.py)
