@@ -59,6 +59,14 @@ struct Pose {
     float yaw = 0;
 };
 
+struct Shield {
+    float life = 0;
+    //! The class of the armor item that gives the shield; empty for other shields.
+    std::string_view armorClass;
+    //! The game sends no life for new armor: until it takes damage, its life is the starting life in the game data of its class.
+    bool fresh = false;
+};
+
 //! Its texts are views into the match: the match must outlive it.
 class Timeline {
 public:
@@ -71,10 +79,12 @@ public:
     std::span<const Spike> getSpikes() const { return spikes; }
     int getWins(Side side) const { return side == Side::Blue ? blueWins : redWins; }
     std::span<const std::string> getProblems() const { return problems; }
+    //! Each armor class of a fresh shield, once.
+    std::span<const std::string_view> getArmorClasses() const { return armorClasses; }
 
     std::optional<Pose> findPose(std::uint32_t character, float time) const;
     float getHealth(std::uint32_t character, float time) const;
-    float getShield(std::uint32_t character, float time) const;
+    Shield getShield(std::uint32_t character, float time) const;
 
 private:
     struct Track {
@@ -83,7 +93,7 @@ private:
         std::vector<float> healthTimes;
         std::vector<float> health;
         std::vector<float> shieldTimes;
-        std::vector<float> shield;
+        std::vector<Shield> shield;
     };
 
     const Track* findTrack(std::uint32_t character) const;
@@ -96,6 +106,7 @@ private:
     int blueWins = 0;
     int redWins = 0;
     std::vector<std::string> problems;
+    std::vector<std::string_view> armorClasses;
     std::unordered_map<std::uint32_t, Track> tracks;
 };
 

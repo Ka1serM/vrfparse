@@ -11,8 +11,12 @@
 
 namespace {
 
-std::string bits(const float value) { return std::format("{:08x}", std::bit_cast<std::uint32_t>(value)); }
-std::string vector(const vrfparse::Vector& v) { return std::format("{},{},{}", bits(v.x), bits(v.y), bits(v.z)); }
+std::string bits(const float value) {
+    return std::format("{:08x}", std::bit_cast<std::uint32_t>(value));
+}
+std::string vector(const vrfparse::Vector& v) {
+    return std::format("{},{},{}", bits(v.x), bits(v.y), bits(v.z));
+}
 std::string hex(const vrfparse::Event& event) {
     std::vector<std::uint8_t> bytes(static_cast<std::size_t>((event.payloadBits + 7) / 8));
     event.readPayload().readBits(bytes, event.payloadBits);
@@ -55,10 +59,11 @@ int main(const int argc, char** argv) {
                 switch (e.kind) {
                 case vrfparse::EventKind::ActorOpen: {
                     const bool dynamic = e.spawn != nullptr;
-                    out += std::format("open\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n", time, e.channel, e.actor, e.classGuid, e.outerGuid,
-                                       dynamic ? 105 : 0, e.path, e.name, dynamic ? vector(e.spawn->location) : "-",
-                                       dynamic ? std::format("{},{},{}", bits(e.spawn->rotation.pitch), bits(e.spawn->rotation.yaw), bits(e.spawn->rotation.roll)) : "-",
-                                       dynamic ? vector(e.spawn->scale) : "-", dynamic ? vector(e.spawn->velocity) : "-");
+                    out += std::format(
+                        "open\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n", time, e.channel, e.actor, e.classGuid, e.outerGuid, dynamic ? 105 : 0, e.path,
+                        e.name, dynamic ? vector(e.spawn->location) : "-",
+                        dynamic ? std::format("{},{},{}", bits(e.spawn->rotation.pitch), bits(e.spawn->rotation.yaw), bits(e.spawn->rotation.roll)) : "-",
+                        dynamic ? vector(e.spawn->scale) : "-", dynamic ? vector(e.spawn->velocity) : "-");
                     break;
                 }
                 case vrfparse::EventKind::ActorClose:
@@ -79,7 +84,8 @@ int main(const int argc, char** argv) {
                     out += std::format("field\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n", time, e.channel, e.actor, e.object, e.handle, e.name, e.payloadBits, hex(e));
                     break;
                 case vrfparse::EventKind::ClassNetCache:
-                    out += std::format("cache\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n", time, e.channel, e.actor, e.object, e.path, e.hasRepLayout ? 2 : 0, e.payloadBits, hex(e));
+                    out += std::format("cache\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n", time, e.channel, e.actor, e.object, e.path, e.hasRepLayout ? 2 : 0,
+                                       e.payloadBits, hex(e));
                     break;
                 case vrfparse::EventKind::BunchEnd:
                     out += std::format("end\t{}\t{}\t{}\n", time, e.channel, e.actor);
@@ -90,7 +96,8 @@ int main(const int argc, char** argv) {
                     out.clear();
                 }
             }
-            out += std::format("header\t{}\t{}\t{}\t{}\n", match.getBranch(), match.getChangelist(), static_cast<int>(match.getLength() * 1000.0f + 0.5f), join(match.getLevels()));
+            out += std::format("header\t{}\t{}\t{}\t{}\n", match.getBranch(), match.getChangelist(), static_cast<int>(match.getLength() * 1000.0f + 0.5f),
+                               join(match.getLevels()));
             for (const vrfparse::Marker& m : match.getMarkers())
                 out += std::format("marker\t{}\t{}\t{}\t{}\t{}\n", m.id, m.group, m.metadata, bits(m.time), bits(m.endTime));
             out += std::format("problems\t{}\n", match.getProblems().size());
@@ -117,7 +124,8 @@ int main(const int argc, char** argv) {
                                    r.winner ? (*r.winner == vrfparse::Side::Blue ? "Blue" : "Red") : "-", static_cast<int>(r.winnerRole),
                                    r.outcome ? static_cast<int>(*r.outcome) : -1);
             for (const vrfparse::Kill& k : timeline.getKills())
-                out += std::format("kill\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n", bits(k.time), k.killer, k.victim, k.weaponClass, k.headshot ? 1 : 0, k.wallbang ? 1 : 0, join(k.assisters));
+                out += std::format("kill\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n", bits(k.time), k.killer, k.victim, k.weaponClass, k.headshot ? 1 : 0,
+                                   k.wallbang ? 1 : 0, join(k.assisters));
             for (const vrfparse::Spike& p : timeline.getSpikes())
                 out += std::format("spike\t{}\t{}\t{}\t{}\t{},{}\n", bits(p.time), static_cast<int>(p.action), p.character, p.site, bits(p.x), bits(p.y));
             out += std::format("problems\t{}\n", timeline.getProblems().size());
@@ -131,9 +139,13 @@ int main(const int argc, char** argv) {
                 const float time = std::bit_cast<float>(static_cast<std::uint32_t>(std::stoul(timeBits, nullptr, 16)));
                 if (kind == "pose") {
                     const auto pose = timeline.findPose(character, time);
-                    out += std::format("pose\t{}\t{}\t{}\n", character, timeBits, pose ? std::format("{},{},{}", bits(pose->x), bits(pose->y), bits(pose->yaw)) : "-");
+                    out += std::format("pose\t{}\t{}\t{}\n", character, timeBits,
+                                       pose ? std::format("{},{},{}", bits(pose->x), bits(pose->y), bits(pose->yaw)) : "-");
                 } else {
-                    out += std::format("{}\t{}\t{}\t{}\n", kind, character, timeBits, bits(kind == "health" ? timeline.getHealth(character, time) : timeline.getShield(character, time)));
+                    const vrfparse::Shield shield = timeline.getShield(character, time);
+                    out += kind == "health"
+                               ? std::format("health\t{}\t{}\t{}\n", character, timeBits, bits(timeline.getHealth(character, time)))
+                               : std::format("shield\t{}\t{}\t{}\t{}\n", character, timeBits, bits(shield.life), shield.fresh ? shield.armorClass : "-");
                 }
             }
         }

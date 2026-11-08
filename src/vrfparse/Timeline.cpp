@@ -6,6 +6,7 @@
 #include <iterator>
 #include <map>
 #include <unordered_set>
+#include <utility>
 
 #include "vrfparse/BitReader.h"
 #include "vrfparse/ComponentDataStream.h"
@@ -31,6 +32,9 @@ constexpr std::string_view overhealDecayFunction = "/Script/ShooterGame.Damageab
 constexpr std::string_view sectionLifeChangeFunction = "/Script/ShooterGame.DamageableComponent:MulticastSectionLifeChange";
 constexpr std::string_view bombPlantedFunction = "/Game/GameModes/Components/Comp_BombEvents.Comp_BombEvents_C:BombPlantedRPC";
 constexpr std::string_view bombDefusedFunction = "/Game/GameModes/Components/Comp_BombEvents.Comp_BombEvents_C:BombDefusedRPC";
+constexpr std::string_view setLifeFunction = "/Script/ShooterGame.DamageSectionComponent:MulticastNotifySetLife";
+//! Bought armor is an item actor with this section, whose life is the shield of the character that owns the item.
+constexpr std::string_view armorSection = "AttachedDamageSection";
 constexpr std::string_view remoteCharacterUpdatesFunction =
     "/Script/ShooterGame.ReplayPlayerController:ReplaysClientReceiveRemoteCharacterUpdatesSingleArrayNoAutonomous";
 
@@ -38,6 +42,7 @@ constexpr std::string_view remoteCharacterUpdatesFunction =
 constexpr std::pair<std::string_view, std::string_view> defaultSubobjectClasses[] = {
     {"DamageHandlerComponent", "/Script/ShooterGame.DamageableComponent"},
     {"Comp_BombEvents", "/Game/GameModes/Components/Comp_BombEvents.Comp_BombEvents_C"},
+    {"AttachedDamageSection", "/Game/Gear/BasicArmorAttachedDamageSection.BasicArmorAttachedDamageSection_C"},
 };
 
 struct RoundResult {
@@ -65,6 +70,8 @@ struct Life {
     std::uint32_t character = 0;
     bool health = false;
     float value = 0;
+    std::string_view armorClass;
+    bool fresh = false;
 };
 
 struct Move {
@@ -113,16 +120,25 @@ private:
     void report(const Event& event, std::string_view what);
 
     std::unordered_map<std::string_view, std::span<const std::string_view>> groups;
+    const Match& match;
     std::unordered_map<std::uint32_t, std::string_view> names;
+    std::unordered_map<std::uint32_t, std::uint32_t> outers;
+    std::unordered_map<std::uint32_t, std::uint32_t> owners;
+    //! By armor item actor.
+    std::unordered_set<std::uint32_t> armors;
+    std::unordered_map<std::uint32_t, float> armorLives;
     const Event* block = nullptr;
     std::string cachePath;
 };
 
-FactReader::FactReader(const Match& match) {
+FactReader::FactReader(const Match& match) : match(match) {
     for (const Event& event : match.getEvents()) {
         switch (event.kind) {
         case EventKind::NetGuid:
             names[event.object] = event.path;
+            outers[event.object] = event.outerGuid;
+            if (event.path == armorSection)
+                armors.insert(event.outerGuid);
             break;
         case EventKind::ExportGroup:
             groups[event.path] = event.fieldNames;
@@ -152,6 +168,27 @@ std::span<const std::string_view> FactReader::findNames(const std::string_view p
 
 void FactReader::readField(const Event& field) {
     BitReader payload = field.readPayload();
+    if (field.name == "Owner") {
+        const std::uint32_t owner = readObject(payload);
+        if (payload.isError())
+            return;
+        const std::uint32_t before = std::exchange(owners[field.actor], owner);
+        if (!armors.contains(field.actor) || owner == before)
+            return;
+        //! Sold or dropped armor no longer shields its last owner.
+        if (before != 0)
+            lives.push_back({.time = field.time, .character = before, .health = false, .value = 0});
+        if (owner == 0)
+            return;
+        const auto life = armorLives.find(field.actor);
+        lives.push_back({.time = field.time,
+                         .character = owner,
+                         .health = false,
+                         .value = life == armorLives.end() ? 0 : life->second,
+                         .armorClass = match.getClassPath(field.actor),
+                         .fresh = life == armorLives.end()});
+        return;
+    }
     if (field.name == "Subject") {
         std::string subject = payload.readString();
         if (!subject.empty() && !payload.isError())
@@ -248,6 +285,21 @@ void FactReader::readRpc(const Event& cache, const std::string_view classPath, c
             if (name == "LifeChangeEvents")
                 readLifeChanges(cache, value, names);
         });
+    } else if (function == "MulticastNotifySetLife") {
+        const auto section = names.find(cache.object);
+        const auto owner = owners.find(cache.actor);
+        if (section == names.end() || section->second != armorSection || owner == owners.end())
+            return;
+        //! A parameter at its default value is not sent: no NewLife is 0.
+        float life = 0;
+        read = readParameters(payload, findNames(setLifeFunction), [&](const std::string_view name, BitReader& value) {
+            if (name == "NewLife")
+                life = value.readFloat();
+        });
+        if (read) {
+            armorLives[cache.actor] = life;
+            lives.push_back({.time = time, .character = owner->second, .health = false, .value = life, .armorClass = match.getClassPath(cache.actor)});
+        }
     } else if (function == "BombPlantedRPC") {
         //! A parameter at its default value is not sent: no PlantSite is site A.
         Spike spike{.time = time, .action = SpikeAction::Plant, .site = 0};
@@ -369,9 +421,15 @@ void FactReader::addLife(const float time, const std::uint32_t character, const 
     const auto name = names.find(change.component);
     if (name == names.end())
         return;
-    if (name->second != "HealthDamageSection" && name->second != "ShieldDamageSection")
+    if (name->second != "HealthDamageSection" && name->second != "ShieldDamageSection" && name->second != armorSection)
         return;
-    lives.push_back({.time = time, .character = character, .health = name->second == "HealthDamageSection", .value = *change.result});
+    std::string_view armorClass;
+    if (name->second == armorSection)
+        if (const auto armor = outers.find(change.component); armor != outers.end()) {
+            armorLives[armor->second] = *change.result;
+            armorClass = match.getClassPath(armor->second);
+        }
+    lives.push_back({.time = time, .character = character, .health = name->second == "HealthDamageSection", .value = *change.result, .armorClass = armorClass});
 }
 
 void FactReader::report(const Event& event, const std::string_view what) {
@@ -446,8 +504,15 @@ Timeline::Timeline(const Match& match) {
     }
     for (const Life& life : facts.lives) {
         Track& track = tracks[life.character];
-        (life.health ? track.healthTimes : track.shieldTimes).push_back(life.time);
-        (life.health ? track.health : track.shield).push_back(life.value);
+        if (life.health) {
+            track.healthTimes.push_back(life.time);
+            track.health.push_back(life.value);
+            continue;
+        }
+        track.shieldTimes.push_back(life.time);
+        track.shield.push_back({.life = life.value, .armorClass = life.armorClass, .fresh = life.fresh});
+        if (life.fresh && !std::ranges::contains(armorClasses, life.armorClass))
+            armorClasses.push_back(life.armorClass);
     }
 }
 
@@ -471,9 +536,14 @@ float Timeline::getHealth(const std::uint32_t character, const float time) const
     return track ? valueAt(track->healthTimes, track->health, time) : 0;
 }
 
-float Timeline::getShield(const std::uint32_t character, const float time) const {
+Shield Timeline::getShield(const std::uint32_t character, const float time) const {
     const Track* track = findTrack(character);
-    return track ? valueAt(track->shieldTimes, track->shield, time) : 0;
+    if (!track)
+        return {};
+    const auto after = std::ranges::upper_bound(track->shieldTimes, time);
+    if (after == track->shieldTimes.begin())
+        return {};
+    return track->shield[static_cast<std::size_t>(std::distance(track->shieldTimes.begin(), after)) - 1];
 }
 
 }
