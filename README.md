@@ -43,7 +43,7 @@ int main() {
 ## Supported replays
 
 vrfparse reads replays from `++Ares-Core+release-` 11.06 to 11.11, 12.00 to 12.11, 13.00 to 13.02, 13.04 to 13.06,
-13.08, and `++Ares-Core+release-china-13.05`. Replays from other releases fail with `ErrorCode::Version`.
+13.08 to 13.10, and `++Ares-Core+release-china-13.05`. Replays from other releases fail with `ErrorCode::Version`.
 
 ## Building
 

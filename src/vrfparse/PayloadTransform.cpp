@@ -430,6 +430,15 @@ struct Release13_09 {
     }
 };
 
+struct Release13_10 {
+    static constexpr std::uint32_t seedAddend = 0x2c249eb3;
+    template <class T>
+    static Word<T> step(Word<T> v, const Key<T> k) {
+        v = swapAdjacentBits(rotl(v - k.add(8), k.turns(6)));
+        return (v ^ k.mask(3)) - k.add(1);
+    }
+};
+
 struct ReleaseChina13_05 {
     static constexpr std::uint32_t seedAddend = 0xf67761c9;
     template <class T>
@@ -471,6 +480,7 @@ constexpr Release releases[] = {
     {"++Ares-Core+release-13.06", decodeRelease<Release13_06>},
     {"++Ares-Core+release-13.08", decodeRelease<Release13_08>},
     {"++Ares-Core+release-13.09", decodeRelease<Release13_09>},
+    {"++Ares-Core+release-13.10", decodeRelease<Release13_10>},
     {"++Ares-Core+release-china-13.05", decodeRelease<ReleaseChina13_05>},
 };
 

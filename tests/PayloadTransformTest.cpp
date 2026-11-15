@@ -40,6 +40,7 @@ constexpr Expected releases[] = {
     {"13.06", 0xbd1aaaa7b814081cULL},
     {"13.08", 0x8d6898a89089d783ULL},
     {"13.09", 0xee76ea9baf54d318ULL},
+    {"13.10", 0x33cdbe8a86d5ce65ULL},
     {"china-13.05", 0x28c74dbab115021aULL},
 };
 
