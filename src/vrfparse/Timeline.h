@@ -52,6 +52,12 @@ struct Spike {
     float y = 0;
 };
 
+struct AliveChange {
+    float time = 0;
+    std::uint32_t character = 0;
+    bool alive = false;
+};
+
 struct Pose {
     float time = 0;
     float x = 0;
@@ -77,6 +83,7 @@ public:
     std::span<const TimelineRound> getRounds() const { return rounds; }
     std::span<const Kill> getKills() const { return kills; }
     std::span<const Spike> getSpikes() const { return spikes; }
+    std::span<const AliveChange> getAliveChanges() const { return aliveChanges; }
     int getWins(Side side) const { return side == Side::Blue ? blueWins : redWins; }
     std::span<const std::string> getProblems() const { return problems; }
     //! Each armor class of a fresh shield, once.
@@ -103,6 +110,7 @@ private:
     std::vector<TimelineRound> rounds;
     std::vector<Kill> kills;
     std::vector<Spike> spikes;
+    std::vector<AliveChange> aliveChanges;
     int blueWins = 0;
     int redWins = 0;
     std::vector<std::string> problems;

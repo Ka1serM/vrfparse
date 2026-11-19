@@ -126,6 +126,8 @@ int main(const int argc, char** argv) {
             for (const vrfparse::Kill& k : timeline.getKills())
                 out += std::format("kill\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n", bits(k.time), k.killer, k.victim, k.weaponClass, k.headshot ? 1 : 0,
                                    k.wallbang ? 1 : 0, join(k.assisters));
+            for (const vrfparse::AliveChange& a : timeline.getAliveChanges())
+                out += std::format("alive\t{}\t{}\t{}\n", bits(a.time), a.character, a.alive ? 1 : 0);
             for (const vrfparse::Spike& p : timeline.getSpikes())
                 out += std::format("spike\t{}\t{}\t{}\t{}\t{},{}\n", bits(p.time), static_cast<int>(p.action), p.character, p.site, bits(p.x), bits(p.y));
             out += std::format("problems\t{}\n", timeline.getProblems().size());

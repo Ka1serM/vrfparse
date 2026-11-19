@@ -30,6 +30,7 @@ constexpr std::string_view damagePointFunction = "/Script/ShooterGame.Damageable
 constexpr std::string_view healFunction = "/Script/ShooterGame.DamageableComponent:MulticastNotifyHeal";
 constexpr std::string_view overhealDecayFunction = "/Script/ShooterGame.DamageableComponent:MulticastNotifyOverhealDecay";
 constexpr std::string_view sectionLifeChangeFunction = "/Script/ShooterGame.DamageableComponent:MulticastSectionLifeChange";
+constexpr std::string_view resetForRespawnFunction = "/Script/ShooterGame.AresGameStateBase:MulticastResetForRespawn";
 constexpr std::string_view bombPlantedFunction = "/Game/GameModes/Components/Comp_BombEvents.Comp_BombEvents_C:BombPlantedRPC";
 constexpr std::string_view bombDefusedFunction = "/Game/GameModes/Components/Comp_BombEvents.Comp_BombEvents_C:BombDefusedRPC";
 constexpr std::string_view setLifeFunction = "/Script/ShooterGame.DamageSectionComponent:MulticastNotifySetLife";
@@ -106,6 +107,7 @@ public:
     std::vector<Life> lives;
     std::vector<Move> moves;
     std::vector<Spike> spikes;
+    std::vector<AliveChange> aliveChanges;
     std::vector<std::string> problems;
 
 private:
@@ -281,10 +283,24 @@ void FactReader::readRpc(const Event& cache, const std::string_view classPath, c
         });
     } else if (function == "MulticastSectionLifeChange") {
         const std::span<const std::string_view> names = findNames(sectionLifeChangeFunction);
+        //! A parameter at its default value is not sent: no bAliveOnServer is false.
+        bool aliveOnServer = false;
         read = readParameters(payload, names, [&](const std::string_view name, BitReader& value) {
             if (name == "LifeChangeEvents")
                 readLifeChanges(cache, value, names);
+            if (name == "bAliveOnServer")
+                aliveOnServer = value.readBit();
         });
+        if (read)
+            aliveChanges.push_back({.time = time, .character = cache.actor, .alive = aliveOnServer});
+    } else if (function == "MulticastResetForRespawn") {
+        std::uint32_t character = 0;
+        read = readParameters(payload, findNames(resetForRespawnFunction), [&](const std::string_view name, BitReader& value) {
+            if (name == "ShooterCharacter")
+                character = readObject(value);
+        });
+        if (read && character != 0)
+            aliveChanges.push_back({.time = time, .character = character, .alive = true});
     } else if (function == "MulticastNotifySetLife") {
         const auto section = names.find(cache.object);
         const auto owner = owners.find(cache.actor);
@@ -335,6 +351,8 @@ void FactReader::readDamage(const Event& cache, BitReader& payload, const std::s
     const std::span<const std::string_view> names = findNames(function);
     KillingDamage damage{.time = cache.time, .victim = cache.actor};
     bool killed = false;
+    //! A parameter at its default value is not sent: no bAliveAfterDamage is false.
+    bool aliveAfterDamage = false;
     bool hasLifeChanges = false;
     LifeChange change;
     std::uint32_t assister = 0;
@@ -342,6 +360,8 @@ void FactReader::readDamage(const Event& cache, BitReader& payload, const std::s
     const bool read = readParameters(payload, names, [&](const std::string_view name, BitReader& value) {
         if (name == "bDamageKilledTarget")
             killed = value.readBit();
+        if (name == "bAliveAfterDamage")
+            aliveAfterDamage = value.readBit();
         if (name == "EquippableUsed")
             damage.equippable = readObject(value);
         if (name == "RegionalDamage")
@@ -368,6 +388,7 @@ void FactReader::readDamage(const Event& cache, BitReader& payload, const std::s
     });
     if (!read)
         return;
+    aliveChanges.push_back({.time = cache.time, .character = cache.actor, .alive = aliveAfterDamage});
     if (!hasLifeChanges)
         addLife(cache.time, cache.actor, change);
     if (!killed)
@@ -495,6 +516,7 @@ Timeline::Timeline(const Match& match) {
         kill.assisters = closest->assisters;
     }
     spikes = std::move(facts.spikes);
+    aliveChanges = std::move(facts.aliveChanges);
 
     //! An RPC's time is its frame's, and the frames are in time order.
     for (const Move& move : facts.moves) {
