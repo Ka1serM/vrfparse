@@ -35,7 +35,7 @@ int main() {
 - **`Match`** holds the replay header and every network event, in the same order the game plays them back: actor
   channels opening and closing, NetGUID exports, content blocks, and their replicated properties. Payloads stay
   serialized until you call `Event::readPayload`.
-- **`Roster`** lists the players and teams.
+- **`Roster`** lists the players, with the character that each one spawns and the team that each one is on over time.
 - **`Timeline`** gives you the match itself: rounds, kills, spike plants and defuses, and where each character was
   and how much health and shield they had at any point in time.
 - **`BitReader`** and `vrfparse/RepProperties.h` are there if you want to decode payloads yourself.
