@@ -1,9 +1,11 @@
 #include "vrfparse/Roster.h"
 
 #include <algorithm>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -20,13 +22,37 @@ struct ActorField {
     const Event* event = nullptr;
 };
 
+std::optional<Side> sideOf(const std::string_view teamComponent) {
+    if (teamComponent == "BlueTeam")
+        return Side::Blue;
+    if (teamComponent == "RedTeam")
+        return Side::Red;
+    return std::nullopt;
+}
+
+template <class Change>
+const Change* findChange(const std::vector<Change>& changes, const float time) {
+    const auto after = std::ranges::upper_bound(changes, time, {}, &Change::time);
+    return after == changes.begin() ? nullptr : &*std::prev(after);
+}
+
+}
+
+std::uint32_t Player::findSpawnedCharacter(const float time) const {
+    const CharacterChange* change = findChange(spawnedCharacters, time);
+    return change == nullptr ? 0 : change->character;
+}
+
+std::optional<Side> Player::findSide(const float time) const {
+    const TeamChange* change = findChange(teams, time);
+    return change == nullptr ? std::nullopt : change->side;
 }
 
 Roster::Roster(const Match& match) {
     std::unordered_map<std::uint32_t, bool> actorBlock;
     std::unordered_set<std::uint32_t> characters;
     std::unordered_map<std::uint32_t, std::string_view> netGuidPaths;
-    std::vector<ActorField> playerStates, subjects, assignedTeams, teamComponents;
+    std::vector<ActorField> playerStates, subjects, spawnedCharacters, assignedTeams, teamComponents;
     for (const Event& event : match.getEvents()) {
         if (event.kind == EventKind::NetGuid)
             netGuidPaths.try_emplace(event.object, event.path);
@@ -41,6 +67,8 @@ Roster::Roster(const Match& match) {
             playerStates.push_back({event.time, event.actor, &event});
         if (name == "Subject")
             subjects.push_back({event.time, event.actor, &event});
+        if (name == "SpawnedCharacter")
+            spawnedCharacters.push_back({event.time, event.actor, &event});
         if (name == "AssignedTeamState")
             assignedTeams.push_back({event.time, event.actor, &event});
         if (name == "TeamComponent")
@@ -64,26 +92,31 @@ Roster::Roster(const Match& match) {
         if (!payload.isError())
             subjectOf[field.actor] = std::move(subject);
     }
-    std::unordered_map<std::uint32_t, std::uint32_t> teamOf;
-    for (const ActorField& field : assignedTeams) {
+    std::unordered_map<std::uint32_t, std::vector<CharacterChange>> spawnedOf;
+    for (const ActorField& field : spawnedCharacters) {
         BitReader payload = field.event->readPayload();
-        const std::uint32_t teamState = payload.serializeIntPacked();
-        if (teamState != 0 && !payload.isError())
-            teamOf[field.actor] = teamState;
+        const std::uint32_t character = payload.serializeIntPacked();
+        if (!payload.isError())
+            spawnedOf[field.actor].push_back({.time = field.time, .character = character});
     }
-    std::map<std::uint32_t, std::string_view> teamNames;
+    std::unordered_map<std::uint32_t, std::optional<Side>> sideOfTeam;
     for (const ActorField& field : teamComponents) {
         BitReader payload = field.event->readPayload();
         const std::uint32_t component = payload.serializeIntPacked();
         if (payload.isError())
             continue;
         const auto path = netGuidPaths.find(component);
-        teamNames[field.actor] = path == netGuidPaths.end() ? std::string_view() : path->second;
+        sideOfTeam[field.actor] = path == netGuidPaths.end() ? std::nullopt : sideOf(path->second);
     }
-    for (const auto& [playerState, teamState] : teamOf)
-        teamNames.try_emplace(teamState);
-    for (const auto& [teamState, name] : teamNames)
-        teams.push_back({.teamState = teamState, .name = name});
+    std::unordered_map<std::uint32_t, std::vector<TeamChange>> teamsOf;
+    for (const ActorField& field : assignedTeams) {
+        BitReader payload = field.event->readPayload();
+        const std::uint32_t teamState = payload.serializeIntPacked();
+        if (payload.isError())
+            continue;
+        const auto side = sideOfTeam.find(teamState);
+        teamsOf[field.actor].push_back({.time = field.time, .side = side == sideOfTeam.end() ? std::nullopt : side->second});
+    }
 
     std::unordered_map<std::uint32_t, float> firstSeen;
     for (const Event& event : match.getEvents())
@@ -98,8 +131,11 @@ Roster::Roster(const Match& match) {
             return found == firstSeen.end() ? std::numeric_limits<float>::infinity() : found->second;
         });
         const auto subject = subjectOf.find(playerState);
-        players.push_back({.playerState = playerState, .subject = subject == subjectOf.end() ? std::string() : subject->second,
-                           .characters = std::move(owned), .teamState = teamOf.contains(playerState) ? teamOf[playerState] : 0});
+        players.push_back({.playerState = playerState,
+                           .subject = subject == subjectOf.end() ? std::string() : subject->second,
+                           .characters = std::move(owned),
+                           .spawnedCharacters = std::move(spawnedOf[playerState]),
+                           .teams = std::move(teamsOf[playerState])});
     }
 }
 
